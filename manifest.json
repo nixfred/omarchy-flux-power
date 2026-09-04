@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "pi.power",
-  "name": "My Power",
+  "name": "Flux Power",
   "version": "1.0.0",
-  "author": "Omarchy",
-  "description": "Battery, power profile, and system stats",
+  "author": "Fred Nix",
+  "description": "Battery as a glowing flux cell: sparks ride in while charging, out on battery, red when low. Hour-long up/down power trace, live wattage, power profiles.",
   "kinds": [
     "bar-widget"
   ],
@@ -12,8 +12,8 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "My Power",
-    "description": "Battery, power profile, and system stats",
+    "displayName": "Flux Power",
+    "description": "A glowing battery cell in the bar that shows power going in or out, with an hour of history and the stock power-profile picker.",
     "category": "System",
     "allowMultiple": false
   },

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Everything that can be verified without a running shell. Run before committing.
+#
+#   ./check
+#
+# What it cannot cover: QML only fails at instantiation, so a binding error
+# shows up nowhere here. After a QML change also deploy, restart the shell,
+# run test/panel-test.sh, and LOOK at the bar.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+fails=0
+step() {
+  printf '  %-28s' "$1"
+  shift
+  if output=$("$@" 2>&1); then
+    echo "ok"
+  else
+    echo "FAIL"
+    echo "$output" | sed 's/^/      /'
+    fails=$((fails + 1))
+  fi
+}
+
+# qmllint exits non-zero on syntax errors only; unresolved qs.* imports are
+# warnings, which is all we can ask of it outside the running shell.
+qml_syntax() {
+  /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell "$1" >/dev/null 2>&1
+}
+
+echo
+step "model tests (node)" node --test test/model.test.js
+for f in *.qml; do
+  step "qml syntax $f" qml_syntax "$f"
+done
+step "manifest" omarchy plugin validate .
+step "check syntax" bash -n check
+step "panel-test syntax" bash -n test/panel-test.sh
+# A wrong Nerd Font codepoint is invisible in source and renders as the wrong
+# picture. This is the only thing that catches it.
+if command -v uv >/dev/null 2>&1; then
+  step "glyphs resolve by name" uv run --quiet --with fonttools python3 test/glyphs-test.py
+else
+  printf '  %-28s%s\n' "glyphs resolve by name" "skip (no uv)"
+fi
+
+echo
+if (( fails == 0 )); then
+  echo "check: all green"
+else
+  echo "check: $fails failure(s)"
+fi
+exit $(( fails > 0 ))
