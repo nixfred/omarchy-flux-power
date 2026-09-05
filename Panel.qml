@@ -77,18 +77,25 @@ Panel {
     onLoadFailed: root.themeColors = ({})
   }
 
+  // A theme's blue is not always a glow: 2-haxorz's is a navy at 2.6:1 on
+  // its own bar, and a cell wearing it faithfully looks like the stock glyph.
+  // `vivid` keeps each stop's hue but guarantees it stands out from the bar
+  // (Model.glowReady). Off wears the theme verbatim, dull or not.
+  readonly property bool vivid: setting("vivid", true) !== false
+
   function stopColor(key, fallbackToken, fallbackColor) {
     var token = setting(key, fallbackToken)
     var r = Model.resolveColorToken(token, themeColors)
     if (r.kind === "none") r = Model.resolveColorToken(fallbackToken, themeColors)
-    if (r.kind === "hex") return r.value
-    if (r.kind === "role") {
-      if (r.value === "accent") return Color.accent
-      if (r.value === "urgent") return Color.urgent
-      if (r.value === "muted") return Color.muted
-      return Color.foreground
+    var raw = fallbackColor
+    if (r.kind === "hex") raw = r.value
+    else if (r.kind === "role") {
+      if (r.value === "accent") raw = Color.accent
+      else if (r.value === "urgent") raw = Color.urgent
+      else if (r.value === "muted") raw = Color.muted
+      else raw = Color.foreground
     }
-    return fallbackColor
+    return vivid ? Model.glowReady(String(raw), String(Color.bar.background)) : raw
   }
 
   readonly property color fullColor: stopColor("fullColor", "blue", Color.accent)
@@ -333,6 +340,8 @@ Panel {
       low: root.low,
       preview: root.preview ? root.preview.mode : "",
       levelColor: String(root.levelColor),
+      vivid: root.vivid,
+      stops: [String(root.fullColor), String(root.midColor), String(root.lowColor)],
       sizzle: root.sizzle,
       barGlow: root.barGlow,
       sparkDensity: root.sparkDensity,

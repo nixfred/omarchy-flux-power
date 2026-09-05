@@ -252,6 +252,92 @@ function mixRgb(a, b, t) {
   return hsvToRgb(h, A.s + (B.s - A.s) * t1, A.v + (B.v - A.v) * t1)
 }
 
+// ---------------------------------------------------------------- glow ----
+// A theme's blue is not always a glow. 2-haxorz hands over #2b5e8f on a
+// #0b1b2b bar — 2.6:1, the same navy as its accent — and a cell wearing it
+// faithfully vanishes into the bar, reading exactly like the stock glyph.
+// glowReady is the guarantee that a stop can be seen. A stop that stands out
+// from the bar (WCAG contrast of `minRatio`) and is a colour rather than a
+// tinted grey comes back untouched — nord's, gruvbox's and everforest's
+// pastels sit at 0.28–0.33 saturation and are glows. One that fails either
+// test keeps its hue, has its saturation lifted to `minS` and its value
+// walked away from the bar until the ratio is met: brighter on a dark bar,
+// darker on a light one. 2-haxorz's yellow and red are the tinted-grey
+// case, 0.23 with fine contrast, and a halo in them is a smudge. A grey or
+// near-grey stop stays grey, so a monochrome theme keeps its restraint. A
+// pure hue that cannot reach the ratio at full brightness leans towards
+// white rather than giving up.
+
+function hexToRgb(hex) {
+  var m = String(hex || "").trim().match(/^#([0-9a-f]{2})?([0-9a-f]{6})$/i)
+  if (!m) return null
+  var n = parseInt(m[2], 16)
+  return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 }
+}
+
+function rgbToHex(c) {
+  function pair(x) {
+    var s = Math.round(clamp01(x) * 255).toString(16)
+    return s.length < 2 ? "0" + s : s
+  }
+  return "#" + pair(c && c.r) + pair(c && c.g) + pair(c && c.b)
+}
+
+// WCAG relative luminance of {r,g,b} in 0..1.
+function luminance(c) {
+  function lin(x) {
+    var v = clamp01(x)
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+  }
+  return 0.2126 * lin(c && c.r) + 0.7152 * lin(c && c.g) + 0.0722 * lin(c && c.b)
+}
+
+// WCAG contrast ratio between two {r,g,b} colours, 1..21.
+function contrastRatio(a, b) {
+  var la = luminance(a), lb = luminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+var GLOW_MIN_S = 0.55      // a rescued stop is lifted to at least this
+var GLOW_MUDDY_S = 0.25    // under this a coloured stop is a tinted grey, not a colour
+var GLOW_GREY_S = 0.15     // at or under this a stop is grey and stays grey
+var GLOW_MIN_RATIO = 4.5   // WCAG AA text; the themes that glow sit at 5.5–7.5
+var GLOW_MID_LUMA = 0.179  // where black and white contrast equally; above = light bar
+
+function glowReady(hex, bgHex, minS, minRatio) {
+  var c = hexToRgb(hex)
+  if (!c) return String(hex || "")
+  var bg = hexToRgb(bgHex) || { r: 0, g: 0, b: 0 }
+  var sFloor = Number(minS)
+  if (!isFinite(sFloor)) sFloor = GLOW_MIN_S
+  sFloor = clamp01(sFloor)
+  var ratio = Number(minRatio)
+  if (!isFinite(ratio) || ratio < 1) ratio = GLOW_MIN_RATIO
+
+  var hsv = rgbToHsv(c)
+  var grey = hsv.h < 0 || hsv.s <= GLOW_GREY_S
+  var muddy = !grey && hsv.s < GLOW_MUDDY_S
+  if (!muddy && contrastRatio(c, bg) >= ratio) return rgbToHex(c)
+
+  var h = hsv.h < 0 ? 0 : hsv.h
+  var s = grey ? hsv.s : Math.max(hsv.s, sFloor)
+  var v = hsv.v
+  var lightBar = luminance(bg) > GLOW_MID_LUMA
+  var out = hsvToRgb(h, s, v)
+  for (var i = 0; i < 120 && contrastRatio(out, bg) < ratio; i++) {
+    if (lightBar) {
+      if (v <= 0) break
+      v = Math.max(0, v - 0.02)
+    } else if (v < 1) {
+      v = Math.min(1, v + 0.02)
+    } else if (s > 0) {
+      s = Math.max(0, s - 0.02)
+    } else break
+    out = hsvToRgb(h, s, v)
+  }
+  return rgbToHex(out)
+}
+
 // A look at the cell in any state, without touching the battery:
 // `omarchy-shell omarchy.power preview out 35`. Null clears it.
 function previewState(mode, percent) {
@@ -509,6 +595,11 @@ if (typeof module !== "undefined") {
     rgbToHsv: rgbToHsv,
     hsvToRgb: hsvToRgb,
     mixRgb: mixRgb,
+    hexToRgb: hexToRgb,
+    rgbToHex: rgbToHex,
+    luminance: luminance,
+    contrastRatio: contrastRatio,
+    glowReady: glowReady,
     previewState: previewState,
     hash01: hash01,
     sparkSpec: sparkSpec,

@@ -110,6 +110,65 @@ test("mixRgb walks the wheel downward: blue → green → yellow → orange → 
   assert.deepEqual(Model.mixRgb(undefined, undefined, 0.5), { r: 0, g: 0, b: 0 })
 })
 
+test("luminance, contrastRatio and the hex helpers speak WCAG", () => {
+  assert.ok(Math.abs(Model.luminance({ r: 1, g: 1, b: 1 }) - 1) < 1e-9)
+  assert.equal(Model.luminance({ r: 0, g: 0, b: 0 }), 0)
+  assert.ok(Math.abs(Model.contrastRatio({ r: 1, g: 1, b: 1 }, { r: 0, g: 0, b: 0 }) - 21) < 1e-9)
+  assert.equal(Model.rgbToHex(Model.hexToRgb("#2B5E8F")), "#2b5e8f")
+  assert.equal(Model.rgbToHex(Model.hexToRgb("#ff2b5e8f")), "#2b5e8f", "QML's #aarrggbb form")
+  assert.equal(Model.hexToRgb("#abc"), null)
+  assert.equal(Model.hexToRgb("blue"), null)
+})
+
+test("glowReady: 2-haxorz's stops become glows on its own bar, ethereal's come back untouched", () => {
+  const bar = "#0b1b2b"
+  const bg = Model.hexToRgb(bar)
+  for (const dull of ["#2b5e8f", "#7b8768", "#b9968f"]) {
+    const out = Model.glowReady(dull, bar)
+    assert.notEqual(out, dull, dull + " was too dull to leave alone")
+    const rgb = Model.hexToRgb(out)
+    assert.ok(Model.contrastRatio(rgb, bg) >= 4.5, dull + " → " + out + " reaches AA contrast")
+    const hsv = Model.rgbToHsv(rgb), was = Model.rgbToHsv(Model.hexToRgb(dull))
+    assert.ok(hsv.s >= 0.53, dull + " → " + out + " is saturated (0.55 less 8-bit rounding)")
+    assert.ok(Math.abs(hsv.h - was.h) < 0.01, dull + " → " + out + " keeps its hue")
+  }
+  // stops that stand out and are colours come back byte-identical, pastel or not
+  assert.equal(Model.glowReady("#7d82d9", "#060b1e"), "#7d82d9", "ethereal blue")
+  assert.equal(Model.glowReady("#e9bb4f", "#060b1e"), "#e9bb4f", "ethereal yellow")
+  assert.equal(Model.glowReady("#7aa2f7", "#1a1b26"), "#7aa2f7", "tokyo-night blue, s=0.51")
+  assert.equal(Model.glowReady("#7daea3", "#282828"), "#7daea3", "gruvbox blue, s=0.28")
+  assert.equal(Model.glowReady("#7fbbb3", "#2d353b"), "#7fbbb3", "everforest blue, s=0.32")
+  assert.equal(Model.glowReady("#81a1c1", "#2e3440"), "#81a1c1", "nord blue, s=0.33")
+  assert.equal(Model.glowReady("#ff7d82d9", "#ff060b1e"), "#7d82d9", "QML colour strings")
+  // a tinted grey with fine contrast is still rescued: a halo in it is a smudge
+  const dusty = Model.glowReady("#b9968f", "#0b1b2b")
+  assert.notEqual(dusty, "#b9968f")
+  assert.ok(Model.rgbToHsv(Model.hexToRgb(dusty)).s >= 0.53, "dusty rose → " + dusty)
+})
+
+test("glowReady: monochrome stays monochrome, light bars push darker, junk passes through", () => {
+  assert.equal(Model.glowReady("#8d8d8d", "#000000"), "#8d8d8d", "vantablack grey already stands out")
+  assert.equal(Model.glowReady("#1a1a1a", "#ffffff"), "#1a1a1a", "white theme")
+  // a failing near-grey brightens but is not turned into a colour
+  const tint = Model.glowReady("#4a4f52", "#101315")
+  assert.notEqual(tint, "#4a4f52")
+  assert.ok(Model.rgbToHsv(Model.hexToRgb(tint)).s < 0.2, "near-grey keeps its restraint: " + tint)
+  // a pale stop on a light bar goes darker, not brighter
+  const pale = Model.hexToRgb(Model.glowReady("#98a5ba", "#fafafa"))
+  assert.ok(Model.rgbToHsv(pale).v < Model.rgbToHsv(Model.hexToRgb("#98a5ba")).v, "darker")
+  assert.ok(Model.contrastRatio(pale, Model.hexToRgb("#fafafa")) >= 4.5)
+  // pure blue cannot reach AA on black at full brightness; it leans to white instead of giving up
+  const pure = Model.hexToRgb(Model.glowReady("#0000ff", "#000000"))
+  assert.ok(Model.contrastRatio(pure, { r: 0, g: 0, b: 0 }) >= 4.5)
+  assert.ok(pure.b >= pure.r && pure.b >= pure.g, "still blue")
+  // junk in, junk out; a bad bar falls back to black
+  assert.equal(Model.glowReady("nonsense", "#000000"), "nonsense")
+  assert.equal(Model.glowReady("#2b5e8f", "junk"), Model.glowReady("#2b5e8f", "#000000"))
+  // the knobs: a lower ratio leaves more alone, a lower floor lifts less
+  assert.equal(Model.glowReady("#2b5e8f", "#0b1b2b", 0.6, 2), "#2b5e8f")
+  assert.ok(Model.rgbToHsv(Model.hexToRgb(Model.glowReady("#7b8768", "#0b1b2b", 0.3, 4.5))).s < 0.55)
+})
+
 test("previewState: a look at any state, off clears it", () => {
   assert.deepEqual(Model.previewState("out", 35), { mode: "out", fraction: 0.35, watts: 18 })
   assert.deepEqual(Model.previewState("IN", "70"), { mode: "in", fraction: 0.7, watts: 45 })

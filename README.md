@@ -44,6 +44,7 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 | `fullColor` | `"blue"` | The ramp's top stop. A `colors.toml` key (`blue`, `cyan`, `green`, …), a shell role (`accent`, `urgent`, `foreground`, `muted`) or a literal `#rrggbb` |
 | `midColor` | `"yellow"` | The middle stop, reached at 50% (or 15 points above the threshold, whichever is higher) |
 | `lowColor` | `"red"` | The bottom stop |
+| `vivid` | `true` | Guarantee every stop can be seen. A stop that stands out from the bar and is a colour is used as it is; a dull one keeps its hue but gains saturation and brightness until it glows. `false` wears the theme verbatim, dull or not |
 
 ```json
 { "id": "pi.power", "showPercentage": true, "lowThreshold": 15 }
@@ -51,6 +52,8 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 ```
 
 The stops come from the active theme's `~/.local/state/omarchy/current/theme/colors.toml`, so they follow a theme switch. A theme that lacks a key falls back to `accent` / `#e9bb4f` / `urgent`. The blend walks the hue wheel downward, which is why blue → yellow passes through green rather than through grey; pick two stops with adjacent hues if you want a shorter trip.
+
+Not every theme's blue is a glow. 2-haxorz, for one, ships `blue = "#2b5e8f"` on a `#0b1b2b` bar (2.6:1, and the same navy as its accent), and a cell wearing that faithfully is invisible: no halo, no colour, the stock glyph in all but name. `vivid` is the fix. It measures each stop against the bar's actual background and leaves alone anything that both reaches 4.5:1 and is a colour rather than a tinted grey (saturation 0.25 or more): ethereal, tokyo-night, nord, gruvbox and everforest all pass untouched, pastels included. A stop that fails either test keeps its hue, has its saturation lifted to 0.55 and its brightness walked away from the bar until it reaches 4.5:1: brighter on a dark bar, darker on a light one. 2-haxorz's yellow and red are the tinted-grey case, an olive and a dusty rose at 0.23 whose halo is a smudge. Grey and near-grey stops (0.15 or under) stay grey, so a monochrome theme keeps its restraint. `status()` reports the three stops actually in use.
 
 ## IPC
 

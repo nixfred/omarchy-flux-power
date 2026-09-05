@@ -35,6 +35,9 @@ check "at least one rate sample" '(( $(jq -r .samples <<<"$status" 2>/dev/null) 
 check "profiles known" '(( $(jq -r ".profiles | length" <<<"$status" 2>/dev/null) >= 1 ))'
 check "atoms in flight in the bar ($(jq -r .atoms <<<"$status" 2>/dev/null))" '(( $(jq -r .atoms <<<"$status" 2>/dev/null) >= 1 ))'
 check "glints armed ($(jq -r .glints <<<"$status" 2>/dev/null))" '(( $(jq -r .glints <<<"$status" 2>/dev/null) >= 1 ))'
+stops=$(jq -r '.stops | join(" ")' <<<"$status" 2>/dev/null)
+check "three ramp stops in use ($stops)" '[[ $(jq -r ".stops | length" <<<"$status" 2>/dev/null) -eq 3 ]]'
+check "vivid is a boolean ($(jq -r .vivid <<<"$status" 2>/dev/null))" '[[ $(jq -r .vivid <<<"$status" 2>/dev/null) =~ ^(true|false)$ ]]'
 
 # Cross-check the mode against the kernel, which does not know about this plugin.
 if [[ -r /sys/class/power_supply/BAT0/status ]]; then
