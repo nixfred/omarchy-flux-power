@@ -20,6 +20,8 @@ import "Glyphs.js" as Glyphs
 //   showTrend       an up/down arrow beside the percentage  (default true)
 //   sizzle          every animation, bar and panel          (default true)
 //   barGlow         the glow and sparks in the bar          (default true)
+//   sparkDensity    how many atoms and glints are in flight (default 1, 0..3)
+//   sparkle         the four-point glints around the atoms  (default true)
 //   lowThreshold    percent at which "out" turns urgent,
 //                   and where the ramp reaches red          (default 20)
 //   fullColor       the ramp's top stop: a colors.toml key
@@ -46,6 +48,11 @@ Panel {
   readonly property bool showTrend: setting("showTrend", true) !== false
   readonly property bool sizzle: setting("sizzle", true) !== false
   readonly property bool barGlow: setting("barGlow", true) !== false
+  readonly property real sparkDensity: {
+    var v = Number(setting("sparkDensity", 1))
+    return isFinite(v) ? Math.max(0, Math.min(3, v)) : 1
+  }
+  readonly property bool sparkle: setting("sparkle", true) !== false
   readonly property int lowThreshold: {
     var v = Number(setting("lowThreshold", 20))
     return isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 20
@@ -328,6 +335,10 @@ Panel {
       levelColor: String(root.levelColor),
       sizzle: root.sizzle,
       barGlow: root.barGlow,
+      sparkDensity: root.sparkDensity,
+      sparkle: root.sparkle,
+      atoms: barCell.pipCount,
+      glints: barCell.twinkleCount,
       samples: root.rateHistory.length,
       profile: root.activeProfile,
       profiles: root.profiles,
@@ -447,6 +458,8 @@ Panel {
         midColor: root.midColor
         lowColor: root.lowColor
         lowFraction: root.lowThreshold / 100
+        sparkDensity: root.sparkDensity
+        sparkle: root.sparkle
       }
 
       Row {
@@ -538,6 +551,8 @@ Panel {
             midColor: root.midColor
             lowColor: root.lowColor
             lowFraction: root.lowThreshold / 100
+            sparkDensity: root.sparkDensity
+            sparkle: root.sparkle
           }
 
           Column {

@@ -249,3 +249,59 @@ test("stock model survives untouched", () => {
     { profiles: ["power-saver", "balanced", "performance"], activeProfile: "balanced", profileIndex: 0 })
   assert.equal(Model.selectProfileIndex(2, 1, ["a", "b", "c"]), 2)
 })
+
+test("hash01 is deterministic, in range, and differs across indices and salts", () => {
+  for (let i = 0; i < 50; i++) {
+    const v = Model.hash01(i, 1)
+    assert.ok(v >= 0 && v < 1, `hash01(${i}) in [0,1)`)
+    assert.equal(v, Model.hash01(i, 1), "same input, same output")
+  }
+  assert.notEqual(Model.hash01(3, 1), Model.hash01(4, 1))
+  assert.notEqual(Model.hash01(3, 1), Model.hash01(3, 2))
+  assert.ok(Model.hash01("junk", undefined) >= 0)
+})
+
+test("sparkSpec: every atom has its own personality, all within bounds", () => {
+  const n = 8
+  const specs = []
+  for (let i = 0; i < n; i++) {
+    const s = Model.sparkSpec(i, n)
+    assert.ok(s.size >= 0.7 && s.size <= 1.3, "size")
+    assert.ok(s.yFrom >= 0.55 && s.yFrom <= 0.85, "yFrom is the low band")
+    assert.ok(s.yTo >= 0.15 && s.yTo <= 0.45, "yTo is the high band")
+    assert.ok(s.yFrom > s.yTo, "in-atoms rise, out-atoms sink")
+    assert.ok(s.delay >= i / n && s.delay <= i / n + 0.25, "stagger plus jitter")
+    assert.ok(s.speed >= 0.8 && s.speed <= 1.25, "speed")
+    assert.ok(s.peak >= 0.7 && s.peak <= 1.0, "peak")
+    assert.ok(s.rest >= 0.1 && s.rest <= 0.6, "rest")
+    assert.deepEqual(s, Model.sparkSpec(i, n), "deterministic")
+    specs.push(s)
+  }
+  const sizes = new Set(specs.map(s => s.size.toFixed(6)))
+  assert.ok(sizes.size >= 6, "sizes are not all the same")
+  const delays = specs.map(s => s.delay)
+  assert.ok(delays[7] > delays[0], "later atoms set off later")
+  // junk survives
+  assert.ok(Model.sparkSpec(-3, 0).size > 0)
+  assert.ok(Model.sparkSpec("x", "y").delay >= 0)
+})
+
+test("twinkleSpec: glints land inside the flow region and spin either way", () => {
+  const n = 6
+  let cw = 0, ccw = 0
+  for (let i = 0; i < n; i++) {
+    const t = Model.twinkleSpec(i, n)
+    assert.ok(t.x >= 0 && t.x < 1 && t.y >= 0 && t.y < 1, "position fractions")
+    assert.ok(t.size >= 0.6 && t.size <= 1.4, "size")
+    assert.ok(t.delay >= (i / n) * 1.6 && t.delay <= (i / n) * 1.6 + 0.8, "delay")
+    assert.ok(t.rest >= 0.6 && t.rest <= 2.2, "rest")
+    assert.ok(t.spin === 90 || t.spin === -90, "spin")
+    if (t.spin > 0) cw++; else ccw++
+    assert.deepEqual(t, Model.twinkleSpec(i, n), "deterministic")
+  }
+  assert.ok(cw + ccw === n)
+  // twelve glints: both directions show up
+  let anyCw = false, anyCcw = false
+  for (let i = 0; i < 12; i++) { const s = Model.twinkleSpec(i, 12).spin; if (s > 0) anyCw = true; else anyCcw = true }
+  assert.ok(anyCw && anyCcw, "a dozen glints spin both ways")
+})

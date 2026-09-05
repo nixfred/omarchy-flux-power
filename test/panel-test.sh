@@ -33,6 +33,8 @@ pct=$(jq -r .percent <<<"$status" 2>/dev/null)
 check "percent 0..100 ($pct)" '[[ $pct =~ ^[0-9]+$ ]] && (( pct >= 0 && pct <= 100 ))'
 check "at least one rate sample" '(( $(jq -r .samples <<<"$status" 2>/dev/null) >= 1 ))'
 check "profiles known" '(( $(jq -r ".profiles | length" <<<"$status" 2>/dev/null) >= 1 ))'
+check "atoms in flight in the bar ($(jq -r .atoms <<<"$status" 2>/dev/null))" '(( $(jq -r .atoms <<<"$status" 2>/dev/null) >= 1 ))'
+check "glints armed ($(jq -r .glints <<<"$status" 2>/dev/null))" '(( $(jq -r .glints <<<"$status" 2>/dev/null) >= 1 ))'
 
 # Cross-check the mode against the kernel, which does not know about this plugin.
 if [[ -r /sys/class/power_supply/BAT0/status ]]; then

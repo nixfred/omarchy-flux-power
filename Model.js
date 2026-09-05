@@ -265,6 +265,49 @@ function previewState(mode, percent) {
   return { mode: m, fraction: p / 100, watts: m === "in" ? 45 : (m === "out" ? 18 : 0) }
 }
 
+// A deterministic 0..1 per (index, salt): the classic sin-hash. Not random —
+// the same index always gets the same number, so a spark's personality never
+// changes under you between binding evaluations.
+function hash01(n, salt) {
+  var x = Math.sin((Number(n) || 0) * 12.9898 + (Number(salt) || 0) * 78.233) * 43758.5453
+  return x - Math.floor(x)
+}
+
+// One atom's personality in the stream: size and brightness, the band it
+// rides (fractions of the cell height: the low end and the high end), when it
+// sets off and how long it rests, both as multiples of the base period. A
+// stream with every atom on the same line and the same clock is a convoy.
+function sparkSpec(index, count) {
+  var i = Math.max(0, Math.floor(Number(index) || 0))
+  var n = Math.max(1, Math.floor(Number(count) || 1))
+  var k = i + 1
+  return {
+    size: 0.7 + 0.6 * hash01(k, 1),
+    yFrom: 0.55 + 0.3 * hash01(k, 2),
+    yTo: 0.15 + 0.3 * hash01(k, 3),
+    delay: i / n + 0.25 * hash01(k, 4),
+    speed: 0.8 + 0.45 * hash01(k, 5),
+    peak: 0.7 + 0.3 * hash01(k, 6),
+    rest: 0.1 + 0.5 * hash01(k, 7)
+  }
+}
+
+// One glint's personality: where it pops (fractions of the flow region), how
+// big, when, how long it waits before popping again, and which way it spins.
+function twinkleSpec(index, count) {
+  var i = Math.max(0, Math.floor(Number(index) || 0))
+  var n = Math.max(1, Math.floor(Number(count) || 1))
+  var k = i + 1
+  return {
+    x: hash01(k, 8),
+    y: hash01(k, 9),
+    size: 0.6 + 0.8 * hash01(k, 10),
+    delay: (i / n) * 1.6 + 0.8 * hash01(k, 11),
+    rest: 0.6 + 1.6 * hash01(k, 12),
+    spin: hash01(k, 13) > 0.5 ? 90 : -90
+  }
+}
+
 // Signed watts for the trace: up is in, down is out, flat is parked.
 function signedWatts(mode, watts) {
   var w = Math.abs(Number(watts) || 0)
@@ -467,6 +510,9 @@ if (typeof module !== "undefined") {
     hsvToRgb: hsvToRgb,
     mixRgb: mixRgb,
     previewState: previewState,
+    hash01: hash01,
+    sparkSpec: sparkSpec,
+    twinkleSpec: twinkleSpec,
     signedWatts: signedWatts,
     pipPeriod: pipPeriod,
     formatWatts: formatWatts,

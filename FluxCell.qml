@@ -53,7 +53,15 @@ Item {
   readonly property real strokeWidth: hero ? Math.max(2, Style.spaceReal(2)) : Math.max(1, Style.spaceReal(1.25))
   readonly property real inset: strokeWidth + (hero ? Style.space(3) : Math.max(1, Style.spaceReal(1.5)))
   readonly property real pipSize: hero ? Style.space(5) : Math.max(3, Style.spaceReal(2.5))
-  readonly property int pipCount: hero ? 4 : 3
+  // How many atoms are in flight and how many glints pop around them. The
+  // density knob scales both; 0 turns the stream off without touching the glow.
+  property real sparkDensity: 1
+  property bool sparkle: true
+  readonly property real density: Math.max(0, Math.min(3, Number(sparkDensity) || 0))
+  readonly property int pipCount: Math.round((hero ? 14 : 8) * density)
+  readonly property int twinkleCount: sparkle ? Math.round((hero ? 12 : 6) * density) : 0
+  readonly property real twinkleSize: hero ? Style.space(9) : Style.space(5)
+  readonly property real twinkleOvershoot: hero ? Style.space(6) : Style.space(2)
   readonly property real cornerRadius: hero ? Style.space(7) : Style.space(3)
 
   implicitWidth: laneWidth + cellWidth + nubWidth
@@ -90,6 +98,8 @@ Item {
     : mode === "full" ? 0.6
     : mode === "hold" ? 0.35
     : 0
+  // Glints are near-white flashes of whatever the atoms are made of.
+  readonly property color glintColor: flowingIn ? Qt.lighter(accent, 1.5) : Qt.lighter(levelColor, 1.5)
   readonly property int breathPeriod: low && flowingOut ? 900 : (flowingIn ? 1500 : 3000)
   readonly property int pipPeriod: Model.pipPeriod(watts, hero ? 2200 : 1500)
 
@@ -269,91 +279,205 @@ Item {
     renderType: Text.NativeRendering
   }
 
-  // ---- Sparks riding in ---------------------------------------------------
-  // Born in the lane, they cross into the cell and die at the fill's leading
-  // edge, rising as they go. Staggered by a fraction of the period so they
-  // read as a current rather than a convoy.
+  // ---- Atoms riding in ----------------------------------------------------
+  // A stream, not a convoy: every atom has its own size, band, speed, delay
+  // and rest (Model.sparkSpec — deterministic per index, so nothing changes
+  // under you). Born in the lane, they cross into the cell and die at the
+  // fill's leading edge, rising as they go. Each is a white-hot core inside
+  // a soft halo, which reads as a glowing particle without a shader.
   Repeater {
     model: root.pipCount
 
-    Rectangle {
-      id: pipIn
+    Item {
+      id: atomIn
       required property int index
+      readonly property var spec: Model.sparkSpec(index, root.pipCount)
+      readonly property real size: root.pipSize * spec.size
       visible: root.animate && root.flowingIn
-      width: root.pipSize
-      height: root.pipSize
-      radius: root.pipSize / 2
-      color: Qt.lighter(root.accent, 1.25)
+      width: size
+      height: size
       opacity: 0
 
+      Rectangle {
+        anchors.centerIn: parent
+        width: parent.width * 2.6
+        height: width
+        radius: width / 2
+        color: root.accent
+        opacity: 0.32
+      }
+      Rectangle {
+        anchors.fill: parent
+        radius: width / 2
+        color: Qt.lighter(root.accent, 1.35)
+      }
+      Rectangle {
+        anchors.centerIn: parent
+        width: Math.max(1, parent.width * 0.45)
+        height: width
+        radius: width / 2
+        color: "white"
+        opacity: 0.9
+      }
+
       SequentialAnimation {
-        running: pipIn.visible
+        running: atomIn.visible
         loops: Animation.Infinite
-        PauseAnimation { duration: pipIn.index * root.pipPeriod / root.pipCount }
+        PauseAnimation { duration: atomIn.spec.delay * root.pipPeriod }
         ParallelAnimation {
           NumberAnimation {
-            target: pipIn; property: "x"
-            from: root.laneWidth * 0.12
-            to: Math.max(root.innerX, root.fillEdgeX - root.pipSize)
-            duration: root.pipPeriod
+            target: atomIn; property: "x"
+            from: root.laneWidth * 0.12 - atomIn.size / 2
+            to: Math.max(root.innerX, root.fillEdgeX - atomIn.size)
+            duration: root.pipPeriod * atomIn.spec.speed
             easing.type: Easing.InQuad
           }
           NumberAnimation {
-            target: pipIn; property: "y"
-            from: root.cellY + root.cellHeight * 0.72 - root.pipSize / 2
-            to: root.cellY + root.cellHeight * 0.28 - root.pipSize / 2
-            duration: root.pipPeriod
+            target: atomIn; property: "y"
+            from: root.cellY + root.cellHeight * atomIn.spec.yFrom - atomIn.size / 2
+            to: root.cellY + root.cellHeight * atomIn.spec.yTo - atomIn.size / 2
+            duration: root.pipPeriod * atomIn.spec.speed
           }
           SequentialAnimation {
-            NumberAnimation { target: pipIn; property: "opacity"; from: 0; to: 0.95; duration: root.pipPeriod * 0.25 }
-            PauseAnimation { duration: root.pipPeriod * 0.45 }
-            NumberAnimation { target: pipIn; property: "opacity"; to: 0; duration: root.pipPeriod * 0.3 }
+            NumberAnimation { target: atomIn; property: "opacity"; from: 0; to: atomIn.spec.peak; duration: root.pipPeriod * atomIn.spec.speed * 0.25 }
+            PauseAnimation { duration: root.pipPeriod * atomIn.spec.speed * 0.45 }
+            NumberAnimation { target: atomIn; property: "opacity"; to: 0; duration: root.pipPeriod * atomIn.spec.speed * 0.3 }
           }
         }
+        PauseAnimation { duration: atomIn.spec.rest * root.pipPeriod }
       }
     }
   }
 
-  // ---- Sparks riding out --------------------------------------------------
+  // ---- Atoms riding out ---------------------------------------------------
   // Born at the fill's edge, they run back through the cell and out of the
-  // lane, sinking and fading: energy leaving.
+  // lane, sinking and fading: energy leaving. Same stream rules, mirrored,
+  // and they wear the cell's level colour because they are the cell's charge.
   Repeater {
     model: root.pipCount
 
-    Rectangle {
-      id: pipOut
+    Item {
+      id: atomOut
       required property int index
+      readonly property var spec: Model.sparkSpec(index, root.pipCount)
+      readonly property real size: root.pipSize * spec.size
       visible: root.animate && root.flowingOut
-      width: root.pipSize
-      height: root.pipSize
-      radius: root.pipSize / 2
-      color: Qt.lighter(root.levelColor, 1.15)
+      width: size
+      height: size
       opacity: 0
 
+      Rectangle {
+        anchors.centerIn: parent
+        width: parent.width * 2.6
+        height: width
+        radius: width / 2
+        color: root.levelColor
+        opacity: 0.32
+      }
+      Rectangle {
+        anchors.fill: parent
+        radius: width / 2
+        color: Qt.lighter(root.levelColor, 1.25)
+      }
+      Rectangle {
+        anchors.centerIn: parent
+        width: Math.max(1, parent.width * 0.45)
+        height: width
+        radius: width / 2
+        color: "white"
+        opacity: 0.9
+      }
+
       SequentialAnimation {
-        running: pipOut.visible
+        running: atomOut.visible
         loops: Animation.Infinite
-        PauseAnimation { duration: pipOut.index * root.pipPeriod / root.pipCount }
+        PauseAnimation { duration: atomOut.spec.delay * root.pipPeriod }
         ParallelAnimation {
           NumberAnimation {
-            target: pipOut; property: "x"
-            from: Math.max(root.innerX, root.fillEdgeX - root.pipSize)
-            to: root.laneWidth * 0.05
-            duration: root.pipPeriod
+            target: atomOut; property: "x"
+            from: Math.max(root.innerX, root.fillEdgeX - atomOut.size)
+            to: root.laneWidth * 0.05 - atomOut.size / 2
+            duration: root.pipPeriod * atomOut.spec.speed
             easing.type: Easing.OutQuad
           }
           NumberAnimation {
-            target: pipOut; property: "y"
-            from: root.cellY + root.cellHeight * 0.28 - root.pipSize / 2
-            to: root.cellY + root.cellHeight * 0.72 - root.pipSize / 2
-            duration: root.pipPeriod
+            target: atomOut; property: "y"
+            from: root.cellY + root.cellHeight * atomOut.spec.yTo - atomOut.size / 2
+            to: root.cellY + root.cellHeight * atomOut.spec.yFrom - atomOut.size / 2
+            duration: root.pipPeriod * atomOut.spec.speed
           }
           SequentialAnimation {
-            NumberAnimation { target: pipOut; property: "opacity"; from: 0; to: 0.95; duration: root.pipPeriod * 0.2 }
-            PauseAnimation { duration: root.pipPeriod * 0.4 }
-            NumberAnimation { target: pipOut; property: "opacity"; to: 0; duration: root.pipPeriod * 0.4 }
+            NumberAnimation { target: atomOut; property: "opacity"; from: 0; to: atomOut.spec.peak; duration: root.pipPeriod * atomOut.spec.speed * 0.2 }
+            PauseAnimation { duration: root.pipPeriod * atomOut.spec.speed * 0.4 }
+            NumberAnimation { target: atomOut; property: "opacity"; to: 0; duration: root.pipPeriod * atomOut.spec.speed * 0.4 }
           }
         }
+        PauseAnimation { duration: atomOut.spec.rest * root.pipPeriod }
+      }
+    }
+  }
+
+  // ---- Glints ---------------------------------------------------------------
+  // Four-point sparkles that pop and spin wherever the atoms are landing or
+  // leaving: across the lane and the cell up to the fill's edge, a little
+  // outside the outline too, like sparks flying off. Positions and timings
+  // are deterministic (Model.twinkleSpec); the motion is all scale / opacity
+  // / rotation, so it costs the compositor nothing to rasterise.
+  Repeater {
+    model: root.twinkleCount
+
+    Item {
+      id: glint
+      required property int index
+      readonly property var spec: Model.twinkleSpec(index, root.twinkleCount)
+      readonly property real size: root.twinkleSize * spec.size
+      visible: root.animate && root.flowing
+      width: size
+      height: size
+      x: root.laneWidth * 0.1 + spec.x * Math.max(0, root.fillEdgeX - root.laneWidth * 0.1) - size / 2
+      y: root.cellY - root.twinkleOvershoot + spec.y * (root.cellHeight + root.twinkleOvershoot * 2) - size / 2
+      scale: 0
+      opacity: 0
+
+      Rectangle {
+        anchors.centerIn: parent
+        width: Math.max(1, parent.width * 0.18)
+        height: parent.height
+        radius: width / 2
+        color: root.glintColor
+      }
+      Rectangle {
+        anchors.centerIn: parent
+        width: parent.width
+        height: Math.max(1, parent.height * 0.18)
+        radius: height / 2
+        color: root.glintColor
+      }
+      Rectangle {
+        anchors.centerIn: parent
+        width: Math.max(1, parent.width * 0.4)
+        height: width
+        radius: width / 2
+        color: "white"
+        opacity: 0.95
+      }
+
+      SequentialAnimation {
+        running: glint.visible
+        loops: Animation.Infinite
+        PauseAnimation { duration: glint.spec.delay * 1000 }
+        ParallelAnimation {
+          SequentialAnimation {
+            NumberAnimation { target: glint; property: "scale"; from: 0; to: 1; duration: 220; easing.type: Easing.OutBack }
+            NumberAnimation { target: glint; property: "scale"; to: 0; duration: 380; easing.type: Easing.InQuad }
+          }
+          SequentialAnimation {
+            NumberAnimation { target: glint; property: "opacity"; from: 0; to: 1; duration: 180 }
+            NumberAnimation { target: glint; property: "opacity"; to: 0; duration: 420 }
+          }
+          NumberAnimation { target: glint; property: "rotation"; from: 0; to: glint.spec.spin; duration: 600 }
+        }
+        PauseAnimation { duration: glint.spec.rest * 1000 }
       }
     }
   }

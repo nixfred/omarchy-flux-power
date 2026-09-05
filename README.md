@@ -9,7 +9,8 @@ An Omarchy shell plugin that replaces the stock battery widget with a glowing fl
 Stock draws a Nerd Font battery rune and, optionally, `92%`. Flux Power:
 
 - **A glowing cell in the bar whose colour is its charge.** The battery is drawn from real rectangles with the charge as a fill, wrapped in a GPU glow. Outline, fill, halo and sparks all wear the level colour: the theme's **blue** when full, sliding round the hue wheel (through green) to **yellow** about the middle and to **red** by the low threshold — on AC or on battery. The glow breathes — fast while charging, slow on battery, a throb when low. The bolt at the far end of the wire stays accent: it is the wall's energy, not the cell's.
-- **Sparks that show direction.** Charging, sparks are born at the bolt in the lane, cross into the cell and die at the fill's leading edge, rising as they go, while a shimmer sweeps the fill and its edge flares. On battery they run the other way — born at the fill, out through the lane, sinking and fading. Speed follows the wattage.
+- **A stream of atoms that shows direction.** Charging, glowing atoms are born at the bolt in the lane, cross into the cell and die at the fill's leading edge, rising as they go, while a shimmer sweeps the fill and its edge flares. On battery they run the other way — born at the fill, out through the lane, sinking and fading. Every atom has its own size, band, speed and rhythm, so it reads as a current rather than a convoy, and the pace follows the wattage.
+- **Glints.** Four-point sparkles pop and spin wherever the atoms are landing or leaving, a little outside the outline too, like sparks flying off.
 - **An up/down arrow** beside the percentage: power going up, or power going out.
 - **A tooltip that answers the question.** `On battery 92%  ·  18.3 W out  ·  3h 24m left`.
 - **The panel scales the same cell up**, with a plug or laptop at the far end of the wire depending on which way the power is going, and a lock over a cell parked at a charge threshold.
@@ -37,6 +38,8 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 | `showTrend` | `true` | The up/down arrow beside the percentage |
 | `sizzle` | `true` | Every animation, bar and panel. `false` is a still picture |
 | `barGlow` | `true` | The glow and sparks in the bar specifically |
+| `sparkDensity` | `1` | How many atoms and glints are in flight, `0`–`3`. `0` keeps the glow and stills the stream |
+| `sparkle` | `true` | The four-point glints around the atoms |
 | `lowThreshold` | `20` | Percent at which "on battery" turns urgent, and where the ramp reaches its bottom colour |
 | `fullColor` | `"blue"` | The ramp's top stop. A `colors.toml` key (`blue`, `cyan`, `green`, …), a shell role (`accent`, `urgent`, `foreground`, `muted`) or a literal `#rrggbb` |
 | `midColor` | `"yellow"` | The middle stop, reached at 50% (or 15 points above the threshold, whichever is higher) |
