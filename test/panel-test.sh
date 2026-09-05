@@ -38,6 +38,14 @@ check "glints armed ($(jq -r .glints <<<"$status" 2>/dev/null))" '(( $(jq -r .gl
 stops=$(jq -r '.stops | join(" ")' <<<"$status" 2>/dev/null)
 check "three ramp stops in use ($stops)" '[[ $(jq -r ".stops | length" <<<"$status" 2>/dev/null) -eq 3 ]]'
 check "vivid is a boolean ($(jq -r .vivid <<<"$status" 2>/dev/null))" '[[ $(jq -r .vivid <<<"$status" 2>/dev/null) =~ ^(true|false)$ ]]'
+hum=$(jq -r .hum <<<"$status" 2>/dev/null)
+humming=$(jq -r .humming <<<"$status" 2>/dev/null)
+check "hum is a boolean ($hum)" '[[ $hum =~ ^(true|false)$ ]]'
+if [[ $mode == full && $hum == true ]]; then
+  check "a full cell with hum on is humming" '[[ $humming == true ]]'
+else
+  check "not humming unless full with hum on (mode=$mode hum=$hum)" '[[ $humming == false ]]'
+fi
 
 # Cross-check the mode against the kernel, which does not know about this plugin.
 if [[ -r /sys/class/power_supply/BAT0/status ]]; then

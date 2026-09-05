@@ -53,6 +53,7 @@ Panel {
     return isFinite(v) ? Math.max(0, Math.min(3, v)) : 1
   }
   readonly property bool sparkle: setting("sparkle", true) !== false
+  readonly property bool hum: setting("hum", true) !== false
   readonly property int lowThreshold: {
     var v = Number(setting("lowThreshold", 20))
     return isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 20
@@ -346,6 +347,8 @@ Panel {
       barGlow: root.barGlow,
       sparkDensity: root.sparkDensity,
       sparkle: root.sparkle,
+      hum: root.hum,
+      humming: barCell.humming,
       atoms: barCell.pipCount,
       glints: barCell.twinkleCount,
       samples: root.rateHistory.length,
@@ -469,6 +472,7 @@ Panel {
         lowFraction: root.lowThreshold / 100
         sparkDensity: root.sparkDensity
         sparkle: root.sparkle
+        hum: root.hum
       }
 
       Row {
@@ -562,6 +566,7 @@ Panel {
             lowFraction: root.lowThreshold / 100
             sparkDensity: root.sparkDensity
             sparkle: root.sparkle
+            hum: root.hum
           }
 
           Column {

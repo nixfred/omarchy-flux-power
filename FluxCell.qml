@@ -57,6 +57,10 @@ Item {
   // density knob scales both; 0 turns the stream off without touching the glow.
   property real sparkDensity: 1
   property bool sparkle: true
+  // A cell parked full brims: the halo swells harder and the glints keep
+  // popping, slower, because the energy is in there even when nothing moves.
+  // Atoms stay tied to flow — a full cell on the wall has no current to show.
+  property bool hum: true
   readonly property real density: Math.max(0, Math.min(3, Number(sparkDensity) || 0))
   readonly property int pipCount: Math.round((hero ? 14 : 8) * density)
   readonly property int twinkleCount: sparkle ? Math.round((hero ? 12 : 6) * density) : 0
@@ -92,15 +96,18 @@ Item {
   // How hard the halo can glow in each state. Charging and draining are the
   // full show — the glow is the point — a low cell throbs, and a parked or
   // full cell simmers.
+  readonly property bool humming: hum && mode === "full"
   readonly property real glowPeak: !glow ? 0
     : flowingIn ? 1.0
     : flowingOut ? (low ? 1.0 : 0.9)
-    : mode === "full" ? 0.6
+    : mode === "full" ? (hum ? 0.9 : 0.6)
     : mode === "hold" ? 0.35
     : 0
   // Glints are near-white flashes of whatever the atoms are made of.
   readonly property color glintColor: flowingIn ? Qt.lighter(accent, 1.5) : Qt.lighter(levelColor, 1.5)
-  readonly property int breathPeriod: low && flowingOut ? 900 : (flowingIn ? 1500 : 3000)
+  readonly property int breathPeriod: low && flowingOut ? 900 : (flowingIn ? 1500 : (humming ? 2200 : 3000))
+  // Glints rest longer on a humming cell: a crackle, not a shower.
+  readonly property real glintRestScale: humming ? 2.5 : 1
   readonly property int pipPeriod: Model.pipPeriod(watts, hero ? 2200 : 1500)
 
   readonly property real cellX: laneWidth
@@ -431,7 +438,7 @@ Item {
       required property int index
       readonly property var spec: Model.twinkleSpec(index, root.twinkleCount)
       readonly property real size: root.twinkleSize * spec.size
-      visible: root.animate && root.flowing
+      visible: root.animate && (root.flowing || root.humming)
       width: size
       height: size
       x: root.laneWidth * 0.1 + spec.x * Math.max(0, root.fillEdgeX - root.laneWidth * 0.1) - size / 2
@@ -477,7 +484,7 @@ Item {
           }
           NumberAnimation { target: glint; property: "rotation"; from: 0; to: glint.spec.spin; duration: 600 }
         }
-        PauseAnimation { duration: glint.spec.rest * 1000 }
+        PauseAnimation { duration: glint.spec.rest * 1000 * root.glintRestScale }
       }
     }
   }
