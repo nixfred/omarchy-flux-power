@@ -5,8 +5,13 @@ import "Model.js" as Model
 import "Glyphs.js" as Glyphs
 
 // The flux cell. A battery drawn from plain rectangles, wrapped in a GPU glow
-// the colour of whatever the power is doing, with sparks that ride INTO the
-// cell while it charges (rising) and OUT of it while it drains (sinking).
+// the colour of its charge, with sparks that ride INTO the cell while it
+// charges (rising) and OUT of it while it drains (sinking).
+//
+// The colour IS the level: blue when full, sliding round the hue wheel to
+// yellow about the middle and to red by the low threshold — outline, fill,
+// halo and sparks together, on AC or off it. The lane bolt stays accent: it
+// is the wall's energy, not the cell's.
 //
 // One component, two scales: `hero: false` is the bar version beside the
 // percentage, `hero: true` is the panel version with a wider lane.
@@ -32,6 +37,13 @@ Item {
   property color muted: Color.muted
   property string fontFamily: Style.font.family
 
+  // The ramp's three stops and where its red end sits (0..1). Panel.qml
+  // resolves these from the theme's colors.toml and shell.json.
+  property color fullColor: accent
+  property color midColor: "#e9bb4f"
+  property color lowColor: urgent
+  property real lowFraction: 0.2
+
   property real cellWidth: hero ? Style.space(100) : Style.space(24)
   property real cellHeight: hero ? Style.space(38) : Style.space(11)
   property real laneWidth: hero ? Style.space(30) : Style.space(13)
@@ -51,19 +63,32 @@ Item {
   readonly property bool flowingOut: mode === "out"
   readonly property bool flowing: flowingIn || flowingOut
   readonly property bool onAc: mode === "in" || mode === "hold" || mode === "full"
-  readonly property string flowRole: Model.flowRole(mode, low)
-  readonly property color flowColor: flowRole === "accent" ? accent
-    : flowRole === "urgent" ? urgent
+  // The level colour: where the charge sits between the three stops, walked
+  // round the hue wheel so blue → yellow passes through green, not grey.
+  readonly property var levelStops: Model.levelBlend(fraction, lowFraction)
+  function stopColor(name) {
+    return name === "full" ? fullColor : (name === "mid" ? midColor : lowColor)
+  }
+  readonly property color levelColor: {
+    var m = Model.mixRgb(stopColor(levelStops.from), stopColor(levelStops.to), levelStops.t)
+    return Qt.rgba(m.r, m.g, m.b, 1)
+  }
+
+  // What the things around the cell wear: the level colour while power is
+  // moving or the cell is full, muted while it is parked at a threshold.
+  readonly property string flowRole: Model.flowRole(mode)
+  readonly property color flowColor: flowRole === "level" ? levelColor
     : flowRole === "muted" ? muted
     : foreground
 
-  // How hard the halo can glow in each state. Charging is the full show; a
-  // low cell on battery is too, in red; a parked or full cell just simmers.
+  // How hard the halo can glow in each state. Charging and draining are the
+  // full show — the glow is the point — a low cell throbs, and a parked or
+  // full cell simmers.
   readonly property real glowPeak: !glow ? 0
     : flowingIn ? 1.0
-    : flowingOut ? (low ? 1.0 : 0.6)
-    : mode === "full" ? 0.5
-    : mode === "hold" ? 0.3
+    : flowingOut ? (low ? 1.0 : 0.9)
+    : mode === "full" ? 0.6
+    : mode === "hold" ? 0.35
     : 0
   readonly property int breathPeriod: low && flowingOut ? 900 : (flowingIn ? 1500 : 3000)
   readonly property int pipPeriod: Model.pipPeriod(watts, hero ? 2200 : 1500)
@@ -98,7 +123,9 @@ Item {
     text: Glyphs.glyph(key === "plug" && !root.hero ? "bolt" : key)
     x: (root.laneWidth - width) / 2 - (root.hero ? Style.space(3) : 0)
     anchors.verticalCenter: parent.verticalCenter
-    color: root.onAc || root.low ? root.flowColor : Util.alpha(root.foreground, 0.6)
+    // The bolt / plug is the wall's energy: accent. Parked, it dims to muted.
+    // The laptop on battery wears the cell's level colour.
+    color: !root.onAc ? root.levelColor : (root.mode === "hold" ? root.muted : root.accent)
     font.family: root.fontFamily
     font.pixelSize: root.hero ? Style.font.display : Style.font.bodySmall
     renderType: Text.NativeRendering
@@ -122,9 +149,12 @@ Item {
       width: root.cellWidth
       height: root.cellHeight
       radius: root.cornerRadius
-      color: Util.alpha(root.foreground, 0.06)
+      color: Util.alpha(root.levelColor, 0.12)
       border.width: root.strokeWidth
-      border.color: Util.alpha(root.foreground, 0.9)
+      border.color: Util.alpha(root.levelColor, 0.95)
+
+      Behavior on color { ColorAnimation { duration: 260 } }
+      Behavior on border.color { ColorAnimation { duration: 260 } }
     }
 
     Rectangle {
@@ -134,7 +164,9 @@ Item {
       width: root.nubWidth
       height: root.nubHeight
       radius: Math.min(2, root.nubWidth / 2)
-      color: Util.alpha(root.foreground, 0.9)
+      color: Util.alpha(root.levelColor, 0.95)
+
+      Behavior on color { ColorAnimation { duration: 260 } }
     }
 
     Rectangle {
@@ -144,7 +176,7 @@ Item {
       width: root.fillWidth
       height: root.cellHeight - root.inset * 2
       radius: Math.max(1, root.cornerRadius - root.inset)
-      color: root.flowColor
+      color: root.levelColor
 
       Behavior on width { NumberAnimation { duration: 600; easing.type: Easing.OutCubic } }
       Behavior on color { ColorAnimation { duration: 260 } }
@@ -157,10 +189,10 @@ Item {
     anchors.fill: cellArt
     autoPaddingEnabled: true
     shadowEnabled: root.glowPeak > 0
-    shadowColor: root.flowColor
+    shadowColor: root.levelColor
     shadowBlur: 1.0
-    blurMax: root.hero ? 48 : 24
-    shadowScale: root.hero ? 1.08 : 1.24
+    blurMax: root.hero ? 56 : 40
+    shadowScale: root.hero ? 1.12 : 1.5
     shadowHorizontalOffset: 0
     shadowVerticalOffset: 0
     shadowOpacity: root.glowPeak * root.haloLevel
@@ -211,7 +243,7 @@ Item {
     y: root.cellY + root.inset
     width: Math.max(1.5, root.strokeWidth)
     height: root.cellHeight - root.inset * 2
-    color: Qt.lighter(root.flowColor, 1.6)
+    color: Qt.lighter(root.levelColor, 1.6)
     opacity: 0.6
 
     SequentialAnimation on opacity {
@@ -251,7 +283,7 @@ Item {
       width: root.pipSize
       height: root.pipSize
       radius: root.pipSize / 2
-      color: Qt.lighter(root.flowColor, 1.25)
+      color: Qt.lighter(root.accent, 1.25)
       opacity: 0
 
       SequentialAnimation {
@@ -295,7 +327,7 @@ Item {
       width: root.pipSize
       height: root.pipSize
       radius: root.pipSize / 2
-      color: Qt.lighter(root.flowColor, 1.15)
+      color: Qt.lighter(root.levelColor, 1.15)
       opacity: 0
 
       SequentialAnimation {

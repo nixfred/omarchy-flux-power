@@ -8,8 +8,9 @@ import "Model.js" as Model
 import "Glyphs.js" as Glyphs
 
 // Flux Power — Omarchy's stock power panel with a battery you can read from
-// across the room. The bar draws a glowing flux cell: sparks ride into it
-// while it charges, out of it on battery, red when it is running low. The
+// across the room. The bar draws a glowing flux cell whose colour is its
+// charge — blue when full, yellow about the middle, red by the low mark —
+// with sparks riding into it while it charges and out of it on battery. The
 // panel scales the same cell up, adds an hour-long up/down power trace and
 // the live in/out wattage, and keeps stock's power-profile picker and every
 // keyboard binding exactly as they were.
@@ -19,7 +20,12 @@ import "Glyphs.js" as Glyphs
 //   showTrend       an up/down arrow beside the percentage  (default true)
 //   sizzle          every animation, bar and panel          (default true)
 //   barGlow         the glow and sparks in the bar          (default true)
-//   lowThreshold    percent at which "out" turns urgent     (default 20)
+//   lowThreshold    percent at which "out" turns urgent,
+//                   and where the ramp reaches red          (default 20)
+//   fullColor       the ramp's top stop: a colors.toml key
+//                   ("blue"), a role ("accent") or "#hex"  (default "blue")
+//   midColor        the middle stop                         (default "yellow")
+//   lowColor        the bottom stop                         (default "red")
 Panel {
   id: root
   moduleName: "pi.power"
@@ -46,6 +52,60 @@ Panel {
   }
   readonly property bool animating: sizzle && opened
   readonly property bool barAnimating: sizzle && barGlow
+
+  // ---- The ramp's stops ------------------------------------------------------
+  // colors.toml carries a full palette (blue, yellow, red, …) of which the
+  // shell's Color singleton only surfaces four roles. Read it here so the
+  // ramp is the theme's own blue / yellow / red, and re-read when the theme
+  // swaps. shell.json can name a different key, a role, or a literal hex.
+  property var themeColors: ({})
+
+  FileView {
+    id: themeColorsFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.themeColors = Model.parseThemeColors(text())
+    onFileChanged: reload()
+    onLoadFailed: root.themeColors = ({})
+  }
+
+  function stopColor(key, fallbackToken, fallbackColor) {
+    var token = setting(key, fallbackToken)
+    var r = Model.resolveColorToken(token, themeColors)
+    if (r.kind === "none") r = Model.resolveColorToken(fallbackToken, themeColors)
+    if (r.kind === "hex") return r.value
+    if (r.kind === "role") {
+      if (r.value === "accent") return Color.accent
+      if (r.value === "urgent") return Color.urgent
+      if (r.value === "muted") return Color.muted
+      return Color.foreground
+    }
+    return fallbackColor
+  }
+
+  readonly property color fullColor: stopColor("fullColor", "blue", Color.accent)
+  readonly property color midColor: stopColor("midColor", "yellow", "#e9bb4f")
+  readonly property color lowColor: stopColor("lowColor", "red", Color.urgent)
+
+  // ---- Preview -----------------------------------------------------------------
+  // `omarchy-shell omarchy.power preview out 35` paints the cell as if it were
+  // in that state for half a minute, so the ramp can be looked at without
+  // running the battery down. Only the picture is faked: the profile picker
+  // and the stats stay live.
+  property var preview: null
+
+  Timer {
+    id: previewTimer
+    interval: 30000
+    onTriggered: root.preview = null
+  }
+
+  function setPreview(mode, percent) {
+    preview = Model.previewState(mode, percent)
+    if (preview) previewTimer.restart()
+    else previewTimer.stop()
+  }
 
   // The open-panel mark under the bar button spans the painted cell + number,
   // not the icon-sized fraction of the slot the bar would otherwise assume.
@@ -98,20 +158,22 @@ Panel {
   }
   readonly property bool batteryFull: fullyCharged || (!root.discharging && batteryFraction >= 1)
   readonly property bool batteryFlowIdle: batteryFull || chargeThresholdActive
-  readonly property real batteryFraction: {
+  readonly property real liveFraction: {
     var d = UPower.displayDevice
     return Model.batteryFraction(d)
   }
+  readonly property real batteryFraction: preview ? preview.fraction : liveFraction
   readonly property bool charging: {
     var d = UPower.displayDevice
     return d && d.isPresent && !UPower.onBattery && !root.batteryFlowIdle
   }
 
   // ---- Flux state --------------------------------------------------------------
-  readonly property string flowMode: {
+  readonly property string liveFlowMode: {
     var d = UPower.displayDevice
     return Model.flowMode(d, UPower.onBattery, upowerStates())
   }
+  readonly property string flowMode: preview ? preview.mode : liveFlowMode
   readonly property bool flowing: flowMode === "in" || flowMode === "out"
   readonly property bool low: Model.isLow(batteryFraction, flowMode, lowThreshold)
   readonly property int percent: Math.round(batteryFraction * 100)
@@ -122,7 +184,8 @@ Panel {
     var d = UPower.displayDevice
     return d && d.isPresent ? Math.abs(Number(d.changeRate) || 0) : 0
   }
-  readonly property real watts: (opened && sysInfo.watts !== undefined) ? sysInfo.watts : upowerWatts
+  readonly property real watts: preview ? preview.watts
+    : (opened && sysInfo.watts !== undefined) ? sysInfo.watts : upowerWatts
 
   readonly property string timeText: {
     var d = UPower.displayDevice
@@ -145,6 +208,7 @@ Panel {
   }
 
   readonly property color flowColor: barCell.flowColor
+  readonly property color levelColor: barCell.levelColor
 
   // ---- Rate history: the hour behind the trace --------------------------------
   // Sampled from UPower every 30 s whether or not the panel is open, so the
@@ -244,21 +308,31 @@ Panel {
     function toggle() { root.toggle() }
     function togglePercentage() { root.togglePercentage() }
     function cycleProfile() { root.cycleProfile() }
-    function status(): string {
-      return JSON.stringify({
-        plugin: "pi.power",
-        mode: root.flowMode,
-        percent: root.percent,
-        watts: root.watts,
-        low: root.low,
-        sizzle: root.sizzle,
-        barGlow: root.barGlow,
-        samples: root.rateHistory.length,
-        profile: root.activeProfile,
-        profiles: root.profiles,
-        opened: root.opened
-      })
+    // preview in|out|hold|full <percent>  — paint that state for 30 s
+    // preview off                          — back to the battery
+    function preview(mode: string, percent: int): string {
+      root.setPreview(mode, percent)
+      return root.statusJson()
     }
+    function status(): string { return root.statusJson() }
+  }
+
+  function statusJson() {
+    return JSON.stringify({
+      plugin: "pi.power",
+      mode: root.flowMode,
+      percent: root.percent,
+      watts: root.watts,
+      low: root.low,
+      preview: root.preview ? root.preview.mode : "",
+      levelColor: String(root.levelColor),
+      sizzle: root.sizzle,
+      barGlow: root.barGlow,
+      samples: root.rateHistory.length,
+      profile: root.activeProfile,
+      profiles: root.profiles,
+      opened: root.opened
+    })
   }
 
   onOpenedChanged: {
@@ -332,6 +406,12 @@ Panel {
     labelVisible: vertical
     text: vertical ? root.batteryIcon() : ""
     fontSize: Style.bar.iconFont
+    // The vertical bar's rune wears the level colour too. levelColor does
+    // not depend on foreground, so the cell reading button.foreground back
+    // is not a loop.
+    foreground: vertical && root.batteryPresent && root.flowMode !== "none"
+      ? root.levelColor
+      : (root.bar ? root.bar.barForeground : Color.foreground)
     hasVisualContent: root.batteryPresent
     fixedWidth: vertical ? -1 : Math.ceil(content.implicitWidth + scaledHorizontalMargin * 2)
     fixedHeight: vertical ? Style.bar.iconSlot : -1
@@ -363,6 +443,10 @@ Panel {
         urgent: button.activeColor
         muted: Color.muted
         fontFamily: button.fontFamily
+        fullColor: root.fullColor
+        midColor: root.midColor
+        lowColor: root.lowColor
+        lowFraction: root.lowThreshold / 100
       }
 
       Row {
@@ -450,6 +534,10 @@ Panel {
             urgent: root.bar.urgent
             muted: Color.muted
             fontFamily: root.bar.fontFamily
+            fullColor: root.fullColor
+            midColor: root.midColor
+            lowColor: root.lowColor
+            lowFraction: root.lowThreshold / 100
           }
 
           Column {

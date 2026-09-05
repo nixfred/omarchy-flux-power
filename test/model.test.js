@@ -24,13 +24,102 @@ test("isLow only bites while draining", () => {
   assert.equal(Model.isLow(0.05, "out", "nonsense"), true, "bad threshold falls back to 20")
 })
 
-test("flowRole maps mode to a palette role", () => {
-  assert.equal(Model.flowRole("in", false), "accent")
-  assert.equal(Model.flowRole("full", false), "accent")
-  assert.equal(Model.flowRole("out", false), "foreground")
-  assert.equal(Model.flowRole("out", true), "urgent")
-  assert.equal(Model.flowRole("hold", false), "muted")
-  assert.equal(Model.flowRole("none", true), "none")
+test("flowRole: moving or full follows the level, parked is muted", () => {
+  assert.equal(Model.flowRole("in"), "level")
+  assert.equal(Model.flowRole("full"), "level")
+  assert.equal(Model.flowRole("out"), "level")
+  assert.equal(Model.flowRole("hold"), "muted")
+  assert.equal(Model.flowRole("none"), "none")
+})
+
+test("parseThemeColors reads every hex key out of colors.toml", () => {
+  const toml = 'mode = "dark"\n\naccent = "#7d82d9"\nforeground = "#ffcead"\nred = "#ED5B5A"\nyellow = "#E9BB4F"\nblue = "#7d82d9"\nnot_a_color = "dark"\n'
+  const t = Model.parseThemeColors(toml)
+  assert.deepEqual(t, { accent: "#7d82d9", foreground: "#ffcead", red: "#ed5b5a", yellow: "#e9bb4f", blue: "#7d82d9" })
+  assert.deepEqual(Model.parseThemeColors(""), {})
+})
+
+test("resolveColorToken: hex, theme key, role, nothing", () => {
+  const theme = { blue: "#7d82d9", yellow: "#e9bb4f" }
+  assert.deepEqual(Model.resolveColorToken("#AbCdEf", theme), { kind: "hex", value: "#abcdef" })
+  assert.deepEqual(Model.resolveColorToken("#fc0", theme), { kind: "hex", value: "#ffcc00" })
+  assert.deepEqual(Model.resolveColorToken("blue", theme), { kind: "hex", value: "#7d82d9" })
+  assert.deepEqual(Model.resolveColorToken(" Yellow ", theme), { kind: "hex", value: "#e9bb4f" })
+  assert.deepEqual(Model.resolveColorToken("accent", theme), { kind: "role", value: "accent" })
+  assert.deepEqual(Model.resolveColorToken("urgent", {}), { kind: "role", value: "urgent" })
+  assert.deepEqual(Model.resolveColorToken("red", {}), { kind: "none" }, "a theme without the key is a miss, not a guess")
+  assert.deepEqual(Model.resolveColorToken("", theme), { kind: "none" })
+  assert.deepEqual(Model.resolveColorToken(undefined, theme), { kind: "none" })
+})
+
+test("levelBlend: blue holds to 85%, yellow at 50%, red by the threshold", () => {
+  assert.deepEqual(Model.levelBlend(1.0, 0.2), { from: "full", to: "full", t: 0 })
+  assert.deepEqual(Model.levelBlend(0.85, 0.2), { from: "full", to: "full", t: 0 })
+  const upper = Model.levelBlend(0.675, 0.2)
+  assert.equal(upper.from, "full"); assert.equal(upper.to, "mid")
+  assert.ok(Math.abs(upper.t - 0.5) < 1e-9)
+  const atMid = Model.levelBlend(0.5, 0.2)
+  assert.equal(atMid.from, "mid"); assert.equal(atMid.to, "low"); assert.equal(atMid.t, 0)
+  const lower = Model.levelBlend(0.35, 0.2)
+  assert.equal(lower.from, "mid"); assert.equal(lower.to, "low")
+  assert.ok(Math.abs(lower.t - 0.5) < 1e-9)
+  assert.deepEqual(Model.levelBlend(0.2, 0.2), { from: "low", to: "low", t: 0 })
+  assert.deepEqual(Model.levelBlend(0.0, 0.2), { from: "low", to: "low", t: 0 })
+})
+
+test("levelBlend: the knees float with a high threshold and survive junk", () => {
+  // threshold 40% → yellow at 55%, blue from 85%
+  assert.deepEqual(Model.levelBlend(0.55, 0.4), { from: "mid", to: "low", t: 0 })
+  assert.equal(Model.levelBlend(0.7, 0.4).to, "mid")
+  assert.deepEqual(Model.levelBlend(0.39, 0.4), { from: "low", to: "low", t: 0 })
+  // threshold clamps at 60% so a silly value still leaves a ramp
+  assert.deepEqual(Model.levelBlend(0.95, 0.9), { from: "full", to: "full", t: 0 })
+  assert.deepEqual(Model.levelBlend(0.5, "nope"), { from: "mid", to: "low", t: 0 }, "bad threshold falls back to 20")
+  assert.deepEqual(Model.levelBlend(NaN, 0.2), { from: "low", to: "low", t: 0 })
+  assert.deepEqual(Model.levelBlend(7, 0.2), { from: "full", to: "full", t: 0 })
+})
+
+test("rgb ↔ hsv round-trips and marks grey as hueless", () => {
+  const blue = { r: 0x7d / 255, g: 0x82 / 255, b: 0xd9 / 255 }
+  const hsv = Model.rgbToHsv(blue)
+  assert.ok(hsv.h > 0.63 && hsv.h < 0.67, "periwinkle sits around 235°")
+  const back = Model.hsvToRgb(hsv.h, hsv.s, hsv.v)
+  for (const k of ["r", "g", "b"]) assert.ok(Math.abs(back[k] - blue[k]) < 1e-9, k)
+  assert.equal(Model.rgbToHsv({ r: 0.5, g: 0.5, b: 0.5 }).h, -1)
+  assert.deepEqual(Model.hsvToRgb(0, 0, 1), { r: 1, g: 1, b: 1 })
+})
+
+test("mixRgb walks the wheel downward: blue → green → yellow → orange → red", () => {
+  const blue = { r: 0x7d / 255, g: 0x82 / 255, b: 0xd9 / 255 }
+  const yellow = { r: 0xe9 / 255, g: 0xbb / 255, b: 0x4f / 255 }
+  const red = { r: 0xed / 255, g: 0x5b / 255, b: 0x5a / 255 }
+  assert.deepEqual(Model.mixRgb(blue, yellow, 0), blue)
+  assert.deepEqual(Model.mixRgb(blue, yellow, 1), yellow)
+  const half = Model.mixRgb(blue, yellow, 0.5)
+  assert.ok(half.g > half.r && half.g > half.b, "halfway from blue to yellow is green, not grey or magenta")
+  const orange = Model.mixRgb(yellow, red, 0.5)
+  assert.ok(orange.r > orange.g && orange.g > orange.b, "halfway from yellow to red is orange")
+  // an achromatic end borrows the other's hue instead of spinning
+  const greyToRed = Model.mixRgb({ r: 0.6, g: 0.6, b: 0.6 }, red, 0.5)
+  assert.ok(greyToRed.r > greyToRed.g && greyToRed.r > greyToRed.b)
+  // both grey: stays grey
+  const grey = Model.mixRgb({ r: 0.2, g: 0.2, b: 0.2 }, { r: 0.8, g: 0.8, b: 0.8 }, 0.5)
+  assert.ok(Math.abs(grey.r - 0.5) < 1e-9 && Math.abs(grey.g - 0.5) < 1e-9)
+  // t outside 0..1 clamps; missing colours do not throw
+  assert.deepEqual(Model.mixRgb(blue, yellow, 4), yellow)
+  assert.deepEqual(Model.mixRgb(undefined, undefined, 0.5), { r: 0, g: 0, b: 0 })
+})
+
+test("previewState: a look at any state, off clears it", () => {
+  assert.deepEqual(Model.previewState("out", 35), { mode: "out", fraction: 0.35, watts: 18 })
+  assert.deepEqual(Model.previewState("IN", "70"), { mode: "in", fraction: 0.7, watts: 45 })
+  assert.deepEqual(Model.previewState("hold", 80), { mode: "hold", fraction: 0.8, watts: 0 })
+  assert.deepEqual(Model.previewState("full", 12), { mode: "full", fraction: 1, watts: 0 }, "full is full")
+  assert.deepEqual(Model.previewState("out", 250), { mode: "out", fraction: 1, watts: 18 })
+  assert.deepEqual(Model.previewState("out", "junk"), { mode: "out", fraction: 0.5, watts: 18 })
+  assert.equal(Model.previewState("off", 0), null)
+  assert.equal(Model.previewState("", 50), null)
+  assert.equal(Model.previewState("sideways", 50), null)
 })
 
 test("signedWatts: up is in, down is out, flat is parked", () => {

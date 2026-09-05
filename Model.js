@@ -122,12 +122,147 @@ function isLow(fraction, mode, threshold) {
   return mode === "out" && Math.round(Math.max(0, Math.min(1, Number(fraction) || 0)) * 100) <= t
 }
 
-// Palette role for the glow, the fill and the sparks.
-function flowRole(mode, low) {
-  if (mode === "out") return low ? "urgent" : "foreground"
-  if (mode === "in" || mode === "full") return "accent"
+// Palette role for the lane glyph, the arrows and the status line. The
+// cell itself always wears its level colour (see levelBlend); this is what
+// the things *around* it key off. "level" follows the ramp, a parked cell
+// goes muted, no battery goes nowhere.
+function flowRole(mode) {
+  if (mode === "in" || mode === "out" || mode === "full") return "level"
   if (mode === "hold") return "muted"
   return "none"
+}
+
+// ---------------------------------------------------------------- level ----
+// The cell's colour is its charge: blue when full, sliding to yellow around
+// the middle and to red by the low threshold. Three stops, read from the
+// theme's colors.toml (blue / yellow / red) unless shell.json overrides them.
+
+function clamp01(value) {
+  var v = Number(value)
+  if (!isFinite(v)) return 0
+  return Math.max(0, Math.min(1, v))
+}
+
+// colors.toml → { key: "#rrggbb" } for every six-digit hex value in the file.
+// Same line grammar Color.qml uses, so a theme that satisfies the shell
+// satisfies this.
+function parseThemeColors(raw) {
+  var out = {}
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6})/)
+    if (m) out[m[1].toLowerCase()] = m[2].toLowerCase()
+  }
+  return out
+}
+
+// What a colour token in shell.json means:
+//   "#rrggbb" / "#rgb"          literal            → { kind: "hex",  value }
+//   "blue", "yellow", "red", …  a colors.toml key  → { kind: "hex",  value }
+//   accent | urgent | foreground | muted            → { kind: "role", value }
+//   anything else                                   → { kind: "none" }
+// Roles are resolved by the caller, which owns the live palette.
+function resolveColorToken(token, theme) {
+  var t = String(token || "").trim().toLowerCase()
+  if (/^#[0-9a-f]{6}$/.test(t)) return { kind: "hex", value: t }
+  if (/^#[0-9a-f]{3}$/.test(t)) {
+    return { kind: "hex", value: "#" + t.charAt(1) + t.charAt(1) + t.charAt(2) + t.charAt(2) + t.charAt(3) + t.charAt(3) }
+  }
+  var th = theme || {}
+  if (t && typeof th[t] === "string") return { kind: "hex", value: th[t] }
+  if (t === "accent" || t === "urgent" || t === "foreground" || t === "muted") return { kind: "role", value: t }
+  return { kind: "none" }
+}
+
+// Where the cell sits on the ramp, as a blend of two stops:
+//   { from: "full" | "mid" | "low", to: same, t: 0..1 }
+// Blue holds from 100% down to `top`, slides to yellow by `mid`, then to red
+// by the low threshold, below which it stays red. The knees float with the
+// threshold so a high threshold still gets a yellow band above it.
+function levelBlend(fraction, lowFraction) {
+  var f = clamp01(fraction)
+  var low = Number(lowFraction)
+  if (!isFinite(low)) low = 0.2
+  low = Math.min(0.6, clamp01(low))
+  var mid = Math.max(low + 0.15, 0.5)
+  var top = Math.max(mid + 0.15, 0.85)
+  if (f >= top) return { from: "full", to: "full", t: 0 }
+  if (f > mid) return { from: "full", to: "mid", t: (top - f) / (top - mid) }
+  if (f > low) return { from: "mid", to: "low", t: (mid - f) / (mid - low) }
+  return { from: "low", to: "low", t: 0 }
+}
+
+// RGB ↔ HSV, components 0..1, hue 0..1 (-1 when there is none).
+function rgbToHsv(c) {
+  var r = clamp01(c && c.r), g = clamp01(c && c.g), b = clamp01(c && c.b)
+  var max = Math.max(r, g, b), min = Math.min(r, g, b)
+  var d = max - min
+  var h = -1
+  if (d > 0) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h /= 6
+    if (h < 0) h += 1
+  }
+  return { h: h, s: max > 0 ? d / max : 0, v: max }
+}
+
+function hsvToRgb(h, s, v) {
+  var hh = ((Number(h) || 0) % 1 + 1) % 1 * 6
+  var ss = clamp01(s), vv = clamp01(v)
+  var i = Math.floor(hh)
+  var f = hh - i
+  var p = vv * (1 - ss), q = vv * (1 - ss * f), t = vv * (1 - ss * (1 - f))
+  var r, g, b
+  switch (i % 6) {
+    case 0: r = vv; g = t; b = p; break
+    case 1: r = q; g = vv; b = p; break
+    case 2: r = p; g = vv; b = t; break
+    case 3: r = p; g = q; b = vv; break
+    case 4: r = t; g = p; b = vv; break
+    default: r = vv; g = p; b = q
+  }
+  return { r: r, g: g, b: b }
+}
+
+// The blend walks the hue wheel *downward* (blue → cyan → green → yellow →
+// orange → red), which is the way a battery ramp reads. A straight RGB lerp
+// from blue to yellow cuts through grey; the short way round the wheel goes
+// through magenta. Only when the downward walk would be more than three
+// quarters of a turn does it go the other way. Inputs are {r,g,b} in 0..1 — a
+// QML colour object qualifies — and so is the result.
+function mixRgb(a, b, t) {
+  var t1 = clamp01(t)
+  if (t1 <= 0) return { r: clamp01(a && a.r), g: clamp01(a && a.g), b: clamp01(a && a.b) }
+  if (t1 >= 1) return { r: clamp01(b && b.r), g: clamp01(b && b.g), b: clamp01(b && b.b) }
+  var A = rgbToHsv(a), B = rgbToHsv(b)
+  var ha = A.h < 0 ? B.h : A.h
+  var hb = B.h < 0 ? A.h : B.h
+  var h
+  if (ha < 0 && hb < 0) h = 0
+  else {
+    var down = ha - hb
+    if (down < 0) down += 1
+    var d = down <= 0.75 ? -down : (1 - down)
+    h = ha + d * t1
+    if (h < 0) h += 1
+    if (h >= 1) h -= 1
+  }
+  return hsvToRgb(h, A.s + (B.s - A.s) * t1, A.v + (B.v - A.v) * t1)
+}
+
+// A look at the cell in any state, without touching the battery:
+// `omarchy-shell omarchy.power preview out 35`. Null clears it.
+function previewState(mode, percent) {
+  var m = String(mode || "").trim().toLowerCase()
+  if (m === "" || m === "off" || m === "live") return null
+  if (["in", "out", "hold", "full"].indexOf(m) < 0) return null
+  var p = Number(percent)
+  if (!isFinite(p)) p = 50
+  p = Math.max(0, Math.min(100, Math.round(p)))
+  if (m === "full") p = 100
+  return { mode: m, fraction: p / 100, watts: m === "in" ? 45 : (m === "out" ? 18 : 0) }
 }
 
 // Signed watts for the trace: up is in, down is out, flat is parked.
@@ -324,6 +459,14 @@ if (typeof module !== "undefined") {
     flowMode: flowMode,
     isLow: isLow,
     flowRole: flowRole,
+    clamp01: clamp01,
+    parseThemeColors: parseThemeColors,
+    resolveColorToken: resolveColorToken,
+    levelBlend: levelBlend,
+    rgbToHsv: rgbToHsv,
+    hsvToRgb: hsvToRgb,
+    mixRgb: mixRgb,
+    previewState: previewState,
     signedWatts: signedWatts,
     pipPeriod: pipPeriod,
     formatWatts: formatWatts,

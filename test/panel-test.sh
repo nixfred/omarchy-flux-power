@@ -45,6 +45,19 @@ if [[ -r /sys/class/power_supply/BAT0/status ]]; then
   esac
 fi
 
+# The preview paints a state without touching the battery; the level colour
+# it reports must move along the ramp as the percent drops.
+pv=$(omarchy-shell omarchy.power preview out 35 2>/dev/null)
+check "preview out 35 takes" '[[ $(jq -r .preview <<<"$pv") == out && $(jq -r .mode <<<"$pv") == out && $(jq -r .percent <<<"$pv") == 35 ]]'
+c35=$(jq -r .levelColor <<<"$pv")
+c95=$(omarchy-shell omarchy.power preview out 95 2>/dev/null | jq -r .levelColor)
+c10=$(omarchy-shell omarchy.power preview out 10 2>/dev/null | jq -r .levelColor)
+check "levelColor is a colour ($c95 → $c35 → $c10)" '[[ $c95 =~ ^#[0-9a-f]{6,8}$ && $c35 =~ ^#[0-9a-f]{6,8}$ && $c10 =~ ^#[0-9a-f]{6,8}$ ]]'
+check "levelColor changes along the ramp" '[[ $c95 != "$c35" && $c35 != "$c10" ]]'
+check "10% on battery is low" '[[ $(omarchy-shell omarchy.power status | jq -r .low) == true ]]'
+after=$(omarchy-shell omarchy.power preview off 0 2>/dev/null)
+check "preview off returns to the battery" '[[ $(jq -r .preview <<<"$after") == "" && $(jq -r .mode <<<"$after") == "$mode" ]]'
+
 omarchy-shell omarchy.power open >/dev/null 2>&1
 sleep 0.5
 check "open() opens the panel" '[[ $(omarchy-shell omarchy.power status | jq -r .opened) == true ]]'

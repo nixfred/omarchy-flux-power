@@ -8,7 +8,7 @@ An Omarchy shell plugin that replaces the stock battery widget with a glowing fl
 
 Stock draws a Nerd Font battery rune and, optionally, `92%`. Flux Power:
 
-- **A glowing cell in the bar.** The battery is drawn from real rectangles with the charge as a fill, wrapped in a GPU glow the colour of whatever the power is doing: the theme accent while charging, the foreground on battery, urgent red when low. The glow breathes — fast while charging, slow on battery, a throb when low.
+- **A glowing cell in the bar whose colour is its charge.** The battery is drawn from real rectangles with the charge as a fill, wrapped in a GPU glow. Outline, fill, halo and sparks all wear the level colour: the theme's **blue** when full, sliding round the hue wheel (through green) to **yellow** about the middle and to **red** by the low threshold — on AC or on battery. The glow breathes — fast while charging, slow on battery, a throb when low. The bolt at the far end of the wire stays accent: it is the wall's energy, not the cell's.
 - **Sparks that show direction.** Charging, sparks are born at the bolt in the lane, cross into the cell and die at the fill's leading edge, rising as they go, while a shimmer sweeps the fill and its edge flares. On battery they run the other way — born at the fill, out through the lane, sinking and fading. Speed follows the wattage.
 - **An up/down arrow** beside the percentage: power going up, or power going out.
 - **A tooltip that answers the question.** `On battery 92%  ·  18.3 W out  ·  3h 24m left`.
@@ -37,11 +37,17 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 | `showTrend` | `true` | The up/down arrow beside the percentage |
 | `sizzle` | `true` | Every animation, bar and panel. `false` is a still picture |
 | `barGlow` | `true` | The glow and sparks in the bar specifically |
-| `lowThreshold` | `20` | Percent at which "on battery" turns urgent |
+| `lowThreshold` | `20` | Percent at which "on battery" turns urgent, and where the ramp reaches its bottom colour |
+| `fullColor` | `"blue"` | The ramp's top stop. A `colors.toml` key (`blue`, `cyan`, `green`, …), a shell role (`accent`, `urgent`, `foreground`, `muted`) or a literal `#rrggbb` |
+| `midColor` | `"yellow"` | The middle stop, reached at 50% (or 15 points above the threshold, whichever is higher) |
+| `lowColor` | `"red"` | The bottom stop |
 
 ```json
 { "id": "pi.power", "showPercentage": true, "lowThreshold": 15 }
+{ "id": "pi.power", "fullColor": "accent", "midColor": "#f2c14e", "lowColor": "urgent" }
 ```
+
+The stops come from the active theme's `~/.local/state/omarchy/current/theme/colors.toml`, so they follow a theme switch. A theme that lacks a key falls back to `accent` / `#e9bb4f` / `urgent`. The blend walks the hue wheel downward, which is why blue → yellow passes through green rather than through grey; pick two stops with adjacent hues if you want a shorter trip.
 
 ## IPC
 
@@ -49,8 +55,13 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 omarchy-shell omarchy.power toggle            # the panel
 omarchy-shell omarchy.power togglePercentage
 omarchy-shell omarchy.power cycleProfile
-omarchy-shell omarchy.power status            # JSON: mode, percent, watts, low, samples, profile…
+omarchy-shell omarchy.power status            # JSON: mode, percent, watts, low, levelColor, samples, profile…
+omarchy-shell omarchy.power preview out 35    # paint "on battery, 35%" for 30 s without draining anything
+omarchy-shell omarchy.power preview in 60     # …or charging at 60%; also hold <pct> and full
+omarchy-shell omarchy.power preview off 0     # back to the real battery
 ```
+
+The preview fakes only the picture (mode, level, wattage, and so the colour); the profile picker and the stats stay live. It is how the ramp gets looked at on a laptop that happens to be plugged in.
 
 ## Performance notes
 
