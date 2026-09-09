@@ -297,25 +297,65 @@ Item {
 
   // ---- The number inside the cell (bar) -----------------------------------
   // The charge as digits over the fill. No "%": a number inside a battery is
-  // a percentage already. Foreground with a bar-coloured outline, so it holds
-  // up on blue, yellow and red fills alike and against the bar where the fill
-  // has not reached. Drawn before the atoms and glints so the stream passes
-  // over it like everything else in the cell.
+  // a percentage already, and no outline: it read as a box round the number.
+  // Legibility comes from two clipped copies instead. Over the fill the
+  // digits wear whichever of foreground / bar background stands out more from
+  // the level colour; past the fill's edge they are plain foreground on the
+  // bar. The seam is the fill's own animated edge, so the colour swap rides
+  // with it. Drawn before the atoms and glints so the stream passes over it.
+  readonly property string labelText: String(Math.round(Math.max(0, Math.min(1, fraction)) * 100))
+  readonly property int labelFontPx: Math.max(8, Math.round(cellHeight * 0.72))
+  readonly property real labelX: cellX + Math.round((cellWidth - labelMetrics.width) / 2)
+  readonly property color labelOnFill: {
+    var lvl = { r: levelColor.r, g: levelColor.g, b: levelColor.b }
+    var fg = { r: foreground.r, g: foreground.g, b: foreground.b }
+    var bg = { r: background.r, g: background.g, b: background.b }
+    return Model.contrastRatio(lvl, bg) > Model.contrastRatio(lvl, fg) ? background : foreground
+  }
+
   Text {
-    id: cellLabel
-    visible: root.labelled
+    id: labelMetrics
+    visible: false
     textFormat: Text.PlainText
-    text: Math.round(Math.max(0, Math.min(1, root.fraction)) * 100)
-    x: root.cellX + Math.round((root.cellWidth - width) / 2)
-    anchors.verticalCenter: parent.verticalCenter
-    color: root.foreground
-    style: Text.Outline
-    styleColor: root.background
+    text: root.labelText
     font.family: root.fontFamily
-    font.pixelSize: Math.max(8, Math.round(root.cellHeight * 0.72))
+    font.pixelSize: root.labelFontPx
+    font.bold: true
+  }
+
+  component CellLabel: Text {
+    textFormat: Text.PlainText
+    text: root.labelText
+    anchors.verticalCenter: parent.verticalCenter
+    font.family: root.fontFamily
+    font.pixelSize: root.labelFontPx
     font.bold: true
 
     Behavior on color { ColorAnimation { duration: 220 } }
+  }
+
+  Item {
+    id: labelOverFill
+    visible: root.labelled && width > 0
+    clip: true
+    x: root.innerX
+    y: 0
+    width: fill.width
+    height: root.height
+
+    CellLabel { x: root.labelX - labelOverFill.x; color: root.labelOnFill }
+  }
+
+  Item {
+    id: labelPastFill
+    visible: root.labelled && width > 0
+    clip: true
+    x: root.innerX + fill.width
+    y: 0
+    width: Math.max(0, root.cellX + root.cellWidth - x)
+    height: root.height
+
+    CellLabel { x: root.labelX - labelPastFill.x; color: root.foreground }
   }
 
   // ---- Atoms riding in ----------------------------------------------------
