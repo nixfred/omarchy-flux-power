@@ -7,7 +7,7 @@ import qs.Ui
 import "Model.js" as Model
 import "Glyphs.js" as Glyphs
 
-// Flux Power — Omarchy's stock power panel with a battery you can read from
+// Power Pulse — Omarchy's stock power panel with a battery you can read from
 // across the room. The bar draws a glowing flux cell whose colour is its
 // charge — blue when full, yellow about the middle, red by the low mark —
 // with sparks riding into it while it charges and out of it on battery. The

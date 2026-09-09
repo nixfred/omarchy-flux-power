@@ -1,4 +1,6 @@
-# Flux Power
+# Power Pulse
+
+Formerly Flux Power. The plugin id is still `pi.power`, so an existing `shell.json` entry keeps working.
 
 An Omarchy shell plugin that replaces the stock battery widget with a glowing flux cell you can read from across the room: sparks ride **into** the cell while it charges, **out** of it on battery, and the whole thing turns red when it is running low.
 
@@ -6,7 +8,7 @@ An Omarchy shell plugin that replaces the stock battery widget with a glowing fl
 
 ## What it does differently
 
-Stock draws a Nerd Font battery rune and, optionally, `92%`. Flux Power:
+Stock draws a Nerd Font battery rune and, optionally, `92%`. Power Pulse:
 
 - **A glowing cell in the bar whose colour is its charge.** The battery is drawn from real rectangles with the charge as a fill, wrapped in a GPU glow. Outline, fill, halo and sparks all wear the level colour: the theme's **blue** when full, sliding round the hue wheel (through green) to **yellow** about the middle and to **red** by the low threshold — on AC or on battery. The glow breathes — fast while charging, slow on battery, a throb when low. The bolt at the far end of the wire stays accent: it is the wall's energy, not the cell's.
 - **A stream of atoms that shows direction.** Charging, glowing atoms are born at the bolt in the lane, cross into the cell and die at the fill's leading edge, rising as they go, while a shimmer sweeps the fill and its edge flares. On battery they run the other way — born at the fill, out through the lane, sinking and fading. Every atom has its own size, band, speed and rhythm, so it reads as a current rather than a convoy, and the pace follows the wattage.
@@ -24,8 +26,10 @@ Everything else — the power-profile picker, keyboard navigation, `omarchy-shel
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/nixfred/omarchy-flux-power --enable
+omarchy plugin add https://github.com/nixfred/power-pulse --enable
 ```
+
+On `dex` it is installed as plain files (no `.git`), so Omarchy's plugin updater leaves it alone; `version-lock.json` records the source commit and the SHA-256 of every runtime file that is live there. Deploy by copying the six runtime files plus the lock into `~/.config/omarchy/plugins/pi.power/` and running `omarchy restart shell`.
 
 The manifest declares `clonedFrom: omarchy.power`, so enabling it takes the stock widget's place in the bar and the shell routes `omarchy.power` IPC calls (the control centre uses them) to this plugin.
 
