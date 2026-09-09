@@ -16,8 +16,9 @@ import "Glyphs.js" as Glyphs
 // keyboard binding exactly as they were.
 //
 // Settings (shell.json, inline on the bar entry):
-//   showPercentage  stock — the number beside the cell     (default false)
-//   showTrend       an up/down arrow beside the percentage  (default true)
+//   showPercentage  the number, written inside the cell    (default false)
+//   showTrend       an up/down arrow beside the panel's
+//                   percentage                              (default true)
 //   sizzle          every animation, bar and panel          (default true)
 //   barGlow         the glow and sparks in the bar          (default true)
 //   sparkDensity    how many atoms and glints are in flight (default 1, 0..3)
@@ -122,8 +123,8 @@ Panel {
     else previewTimer.stop()
   }
 
-  // The open-panel mark under the bar button spans the painted cell + number,
-  // not the icon-sized fraction of the slot the bar would otherwise assume.
+  // The open-panel mark under the bar button spans the painted cell, not the
+  // icon-sized fraction of the slot the bar would otherwise assume.
   readonly property real openPanelIndicatorWidth: !button.vertical ? content.width : 0
 
   readonly property bool batteryPresent: {
@@ -349,6 +350,8 @@ Panel {
       sparkle: root.sparkle,
       hum: root.hum,
       humming: barCell.humming,
+      label: barCell.labelled,
+      cellWidth: Math.round(barCell.implicitWidth),
       atoms: barCell.pipCount,
       glints: barCell.twinkleCount,
       samples: root.rateHistory.length,
@@ -465,6 +468,7 @@ Panel {
         foreground: button.foreground
         urgent: button.activeColor
         muted: Color.muted
+        background: root.bar && !root.bar.transparent ? root.bar.background : Color.bar.background
         fontFamily: button.fontFamily
         fullColor: root.fullColor
         midColor: root.midColor
@@ -473,38 +477,8 @@ Panel {
         sparkDensity: root.sparkDensity
         sparkle: root.sparkle
         hum: root.hum
-      }
-
-      Row {
-        visible: root.showPercentage
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Math.max(1, Style.space(1))
-
-        Text {
-          readonly property string key: Model.trendKey(root.flowMode)
-          visible: root.showTrend && key !== ""
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: Glyphs.glyph(key)
-          color: root.flowColor
-          font.family: button.fontFamily
-          font.pixelSize: Style.font.caption
-          renderType: Text.NativeRendering
-
-          Behavior on color { ColorAnimation { duration: 220 } }
-        }
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: root.percent + "%"
-          color: root.low ? button.activeColor : button.foreground
-          font.family: button.fontFamily
-          font.pixelSize: Style.bar.iconFont
-          renderType: Text.NativeRendering
-
-          Behavior on color { ColorAnimation { duration: 220 } }
-        }
+        // The number lives inside the cell, not beside it: one slot, not two.
+        label: root.showPercentage
       }
     }
   }

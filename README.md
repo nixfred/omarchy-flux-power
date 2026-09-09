@@ -12,7 +12,7 @@ Stock draws a Nerd Font battery rune and, optionally, `92%`. Flux Power:
 - **A stream of atoms that shows direction.** Charging, glowing atoms are born at the bolt in the lane, cross into the cell and die at the fill's leading edge, rising as they go, while a shimmer sweeps the fill and its edge flares. On battery they run the other way — born at the fill, out through the lane, sinking and fading. Every atom has its own size, band, speed and rhythm, so it reads as a current rather than a convoy, and the pace follows the wattage.
 - **Glints.** Four-point sparkles pop and spin wherever the atoms are landing or leaving, a little outside the outline too, like sparks flying off.
 - **A full cell brims.** Parked at 100% on the wall there is no current to show, so the atoms rest — but the halo swells harder and the glints keep crackling, slower, because the energy is in there. A docked laptop spends most of its day here; it should not look switched off.
-- **An up/down arrow** beside the percentage: power going up, or power going out.
+- **The number inside the cell.** With `showPercentage` on, the charge is written as digits over the fill, foreground with a bar-coloured outline so it reads on blue, yellow and red alike. The cell grows a little to hold it and the widget takes one slot instead of two. No `%`: a number inside a battery is a percentage already. The atoms already say which way the power is going, so the bar carries no arrow; the panel's percentage keeps its up/down arrow.
 - **A tooltip that answers the question.** `On battery 92%  ·  18.3 W out  ·  3h 24m left`.
 - **The panel scales the same cell up**, with a plug or laptop at the far end of the wire depending on which way the power is going, and a lock over a cell parked at a charge threshold.
 - **The last hour as bars off a centre line.** Up is in, down is out, flat is parked. Sampled from UPower every 30 seconds whether the panel is open or not, so it has a past the first time you look, and persisted across shell hot-reloads.
@@ -35,8 +35,8 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 
 | Key | Default | What |
 |---|---|---|
-| `showPercentage` | `false` | Stock — the number beside the cell |
-| `showTrend` | `true` | The up/down arrow beside the percentage |
+| `showPercentage` | `false` | The charge as digits inside the cell. Right-click toggles it |
+| `showTrend` | `true` | The up/down arrow beside the panel's percentage |
 | `sizzle` | `true` | Every animation, bar and panel. `false` is a still picture |
 | `barGlow` | `true` | The glow and sparks in the bar specifically |
 | `sparkDensity` | `1` | How many atoms and glints are in flight, `0`–`3`. `0` keeps the glow and stills the stream |

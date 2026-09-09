@@ -13,8 +13,9 @@ import "Glyphs.js" as Glyphs
 // halo and sparks together, on AC or off it. The lane bolt stays accent: it
 // is the wall's energy, not the cell's.
 //
-// One component, two scales: `hero: false` is the bar version beside the
-// percentage, `hero: true` is the panel version with a wider lane.
+// One component, two scales: `hero: false` is the bar version, which can
+// carry the charge as digits inside the cell, `hero: true` is the panel
+// version with a wider lane and the percentage beside it.
 //
 // Motion budget — nothing here is rasterised per frame. The glow is a
 // MultiEffect drop-shadow of a hidden stencil whose texture only changes when
@@ -36,6 +37,14 @@ Item {
   property color urgent: Color.urgent
   property color muted: Color.muted
   property string fontFamily: Style.font.family
+  // What sits behind the widget. The digits inside the cell wear this as an
+  // outline so they read over the fill whatever colour the ramp is at.
+  property color background: Color.bar.background
+
+  // The number inside the cell (bar only). One slot for the battery instead
+  // of two: the cell grows a little and the charge is written over the fill.
+  property bool label: false
+  readonly property bool labelled: label && !hero
 
   // The ramp's three stops and where its red end sits (0..1). Panel.qml
   // resolves these from the theme's colors.toml and shell.json.
@@ -44,8 +53,8 @@ Item {
   property color lowColor: urgent
   property real lowFraction: 0.2
 
-  property real cellWidth: hero ? Style.space(100) : Style.space(24)
-  property real cellHeight: hero ? Style.space(38) : Style.space(11)
+  property real cellWidth: hero ? Style.space(100) : (labelled ? Style.space(30) : Style.space(24))
+  property real cellHeight: hero ? Style.space(38) : (labelled ? Style.space(14) : Style.space(11))
   property real laneWidth: hero ? Style.space(30) : Style.space(13)
 
   readonly property real nubWidth: hero ? Style.space(4) : Math.max(2, Style.spaceReal(2))
@@ -284,6 +293,29 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: Style.font.heading
     renderType: Text.NativeRendering
+  }
+
+  // ---- The number inside the cell (bar) -----------------------------------
+  // The charge as digits over the fill. No "%": a number inside a battery is
+  // a percentage already. Foreground with a bar-coloured outline, so it holds
+  // up on blue, yellow and red fills alike and against the bar where the fill
+  // has not reached. Drawn before the atoms and glints so the stream passes
+  // over it like everything else in the cell.
+  Text {
+    id: cellLabel
+    visible: root.labelled
+    textFormat: Text.PlainText
+    text: Math.round(Math.max(0, Math.min(1, root.fraction)) * 100)
+    x: root.cellX + Math.round((root.cellWidth - width) / 2)
+    anchors.verticalCenter: parent.verticalCenter
+    color: root.foreground
+    style: Text.Outline
+    styleColor: root.background
+    font.family: root.fontFamily
+    font.pixelSize: Math.max(8, Math.round(root.cellHeight * 0.72))
+    font.bold: true
+
+    Behavior on color { ColorAnimation { duration: 220 } }
   }
 
   // ---- Atoms riding in ----------------------------------------------------

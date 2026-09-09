@@ -41,6 +41,10 @@ check "vivid is a boolean ($(jq -r .vivid <<<"$status" 2>/dev/null))" '[[ $(jq -
 hum=$(jq -r .hum <<<"$status" 2>/dev/null)
 humming=$(jq -r .humming <<<"$status" 2>/dev/null)
 check "hum is a boolean ($hum)" '[[ $hum =~ ^(true|false)$ ]]'
+label=$(jq -r .label <<<"$status" 2>/dev/null)
+cellw=$(jq -r .cellWidth <<<"$status" 2>/dev/null)
+check "label is a boolean ($label)" '[[ $label =~ ^(true|false)$ ]]'
+check "bar cell has a width ($cellw px)" '[[ $cellw =~ ^[0-9]+$ ]] && (( cellw > 0 ))'
 if [[ $mode == full && $hum == true ]]; then
   check "a full cell with hum on is humming" '[[ $humming == true ]]'
 else
