@@ -1,0 +1,17 @@
+{
+  "plugin": "pi.power",
+  "name": "Power Pulse",
+  "version": "1.4.0",
+  "sourceCommit": "bcf2cec0b210329ae24ef2115e9471eb1171f018",
+  "repository": "https://github.com/nixfred/power-pulse",
+  "tag": "v1.4.0",
+  "updatePolicy": "The copy running on dex. Plain-file installation excluded from automatic Git updates. Change only on explicit user request. github.com/nixfred/power-pulse is the official source for this host as of 2026-09-09.",
+  "sha256": {
+    "FluxCell.qml": "67fc4e82a47701487a9416760cca902f980679ba4e9a75727de3dea4d197c5a8",
+    "Glyphs.js": "7181ea84861a030ef8950ae1cdc07aa864f32b289a920b159742020d3106c7e6",
+    "Model.js": "c6e880282ebc26e8130070b8be560b0d6a3521bd09ebfb189d87ad0930d7c8d9",
+    "Panel.qml": "3dee953ca1124cdbbb5bd80fa6e0d51e9a28ec173dfc7e1918fe21da255d66da",
+    "PowerTrace.qml": "116b94610cda4155ed64ab29a039197ec906de2d613f90440dc5b3708b76c4f7",
+    "manifest.json": "b80ceccd3d8478a773ec435a91cf40d3c3baae2573d1c0e47deb58e822974896"
+  }
+}
