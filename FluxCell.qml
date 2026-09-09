@@ -60,7 +60,10 @@ Item {
   readonly property real nubWidth: hero ? Style.space(4) : Math.max(2, Style.spaceReal(2))
   readonly property real nubHeight: Math.round(cellHeight * 0.45)
   readonly property real strokeWidth: hero ? Math.max(2, Style.spaceReal(2)) : Math.max(1, Style.spaceReal(1.25))
-  readonly property real inset: strokeWidth + (hero ? Style.space(3) : Math.max(1, Style.spaceReal(1.5)))
+  // With the number inside, the fill sits flush against the outline: the gap
+  // that gives the hero cell its inner glow reads as a box round the digits
+  // at bar scale.
+  readonly property real inset: strokeWidth + (hero ? Style.space(3) : (labelled ? 0 : Math.max(1, Style.spaceReal(1.5))))
   readonly property real pipSize: hero ? Style.space(5) : Math.max(3, Style.spaceReal(2.5))
   // How many atoms are in flight and how many glints pop around them. The
   // density knob scales both; 0 turns the stream off without touching the glow.
