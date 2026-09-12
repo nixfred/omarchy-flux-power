@@ -1,18 +1,18 @@
 {
   "plugin": "pi.power",
   "name": "Power Pulse",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "sourceCommit": "d2c1e76ef75a4fb03d779d761fc5278d00fba26c",
   "repository": "https://github.com/nixfred/power-pulse",
-  "tag": "v1.5.0",
-  "updatePolicy": "The copy running on gus. Plain-file installation excluded from automatic Git updates. Change only on explicit user request. github.com/nixfred/power-pulse is the official source for this host. The charge-limit slider needs msi-ec loaded with firmware=182KIMS1.113 on this board (see README).",
+  "tag": "v1.5.1",
+  "updatePolicy": "The copy running on gus. Plain-file installation excluded from automatic Git updates. Change only on explicit user request. github.com/nixfred/power-pulse is the official source for this host. The charge-limit slider needs msi-ec loaded with firmware=182KIMS1.113 (/etc/modprobe.d/msi-ec.conf + /etc/modules-load.d/msi-ec.conf) and power-pulse-charge-limit.service for the boot restore. See README.",
   "sha256": {
     "FluxCell.qml": "592cbefb26d3b554c79c4002db6f23bee0c5ab53aa73117e15373f5cee380e6c",
     "Glyphs.js": "7181ea84861a030ef8950ae1cdc07aa864f32b289a920b159742020d3106c7e6",
     "Model.js": "cead022430b78d2bc470493ab1faacce7d2a48a8caa69219d8709f18eb8832d2",
-    "Panel.qml": "8ed35e8b441e1d4869f94bf92873e3239c900424bfd7d2c94e4aa74a2d972605",
+    "Panel.qml": "03552b0b760ef606417bdaf26948aa8c82a4c43d83ef3f98b4eb75b05f902e7e",
     "PowerTrace.qml": "116b94610cda4155ed64ab29a039197ec906de2d613f90440dc5b3708b76c4f7",
-    "manifest.json": "2e02742fde737c7f491ba0690ade25ba70ad4c8d36b05a8149fca445faac6ddf",
-    "charge-limit": "7ece8429de832635e1723433e76cead1975d24b09765786b0f8126e9ab1dda74"
+    "manifest.json": "a140b8a6bc1ad056369a23b5b9ce17dc40a035449d018b004057afc4f2756785",
+    "charge-limit": "f73d8ae8705962a08aff44997df751ef8940cb6624fcef9b84d3de363f897217"
   }
 }

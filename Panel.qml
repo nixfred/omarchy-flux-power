@@ -238,6 +238,12 @@ Panel {
   // root-owned: it tries a direct write, then `sudo -n`, then pkexec.
   property int chargeLimitEnd: -1
   property int chargeLimitStart: -1
+  // What /etc/default/power-pulse-charge-limit holds, i.e. what the boot-time
+  // restore service would apply. The live EC value and this can diverge (the
+  // helper failed to save, or something set the threshold behind our back),
+  // and that divergence is exactly the "limit quietly lapses on reboot" trap,
+  // so the panel says so rather than looking correct.
+  property int chargeLimitSaved: -1
   // Held while a write is in flight so the knob does not snap back to the old
   // value between the drag ending and the driver confirming.
   property int chargeLimitPending: -1
@@ -254,6 +260,13 @@ Panel {
     : Model.chargeLimitValue(chargeLimitEnd)
   readonly property bool chargeLimitOff: Model.chargeLimitIsOff(chargeLimitShown)
   readonly property string chargeLimitText: Model.chargeLimitLabel(chargeLimitShown, chargeLimitStart)
+  // Only complain once the dust has settled: mid-write the two legitimately
+  // differ, and an unsupported/absent saved value is not a mismatch.
+  readonly property bool chargeLimitUnsaved: chargeLimitSupported
+    && chargeLimitSaved >= 0
+    && chargeLimitPending < 0
+    && !limitWriteProc.running
+    && chargeLimitSaved !== Model.chargeLimitValue(chargeLimitEnd)
 
   readonly property string helperPath: {
     var u = String(Qt.resolvedUrl("charge-limit"))
@@ -281,11 +294,13 @@ Panel {
     limitWriteProc.running = true
   }
 
-  function applyLimitReading(endRaw, startRaw) {
+  function applyLimitReading(endRaw, startRaw, savedRaw) {
     var e = Number(endRaw)
     var st = Number(startRaw)
+    var sv = Number(savedRaw)
     if (isFinite(e) && String(endRaw).length > 0) chargeLimitEnd = Model.clampPercent(e)
     if (isFinite(st) && String(startRaw).length > 0) chargeLimitStart = Model.clampPercent(st)
+    chargeLimitSaved = (isFinite(sv) && String(savedRaw).length > 0) ? Model.clampPercent(sv) : -1
   }
 
   Process {
@@ -297,7 +312,9 @@ Panel {
         var line = String(text).trim()
         if (line === "") return              // no attribute: unsupported machine
         var parts = line.split("\t")
-        root.applyLimitReading(parts[0], parts.length > 1 ? parts[1] : "")
+        root.applyLimitReading(parts[0],
+                               parts.length > 1 ? parts[1] : "",
+                               parts.length > 2 ? parts[2] : "")
       }
     }
   }
@@ -468,6 +485,8 @@ Panel {
       chargeLimitSupported: root.chargeLimitSupported,
       chargeLimit: root.chargeLimitSupported ? root.chargeLimitShown : 0,
       chargeLimitStart: root.chargeLimitStart,
+      chargeLimitSaved: root.chargeLimitSaved,
+      chargeLimitUnsaved: root.chargeLimitUnsaved,
       chargeLimitBusy: limitWriteProc.running,
       chargeLimitError: root.chargeLimitError,
       opened: root.opened
@@ -872,9 +891,13 @@ Panel {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: root.chargeLimitError !== "" ? root.chargeLimitError : root.chargeLimitText
-            color: root.chargeLimitError !== "" ? root.bar.urgent : root.bar.foreground
-            opacity: root.chargeLimitError !== "" ? 1 : 0.6
+            text: root.chargeLimitError !== "" ? root.chargeLimitError
+              : root.chargeLimitUnsaved
+                ? root.chargeLimitText + " — not saved for reboot (boot would restore "
+                  + root.chargeLimitSaved + "%)"
+                : root.chargeLimitText
+            color: (root.chargeLimitError !== "" || root.chargeLimitUnsaved) ? root.bar.urgent : root.bar.foreground
+            opacity: (root.chargeLimitError !== "" || root.chargeLimitUnsaved) ? 1 : 0.6
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap

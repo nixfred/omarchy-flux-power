@@ -60,6 +60,17 @@ if [[ $limsup == true ]]; then
     expect=$sysfs_lim; (( expect <= 0 )) && expect=100
     check "widget agrees with the kernel (sysfs=$sysfs_lim widget=$lim)" '[[ $lim -eq $expect ]]'
   fi
+  # The limit must also be saved, or it lapses on the next cold boot.
+  saved=$(jq -r .chargeLimitSaved <<<"$status" 2>/dev/null)
+  unsaved=$(jq -r .chargeLimitUnsaved <<<"$status" 2>/dev/null)
+  conf=$(sed -n 's/^CHARGE_LIMIT=\([0-9]\{1,3\}\).*/\1/p' /etc/default/power-pulse-charge-limit 2>/dev/null | tail -1)
+  if [[ -n $conf ]]; then
+    check "widget knows the saved value (conf=$conf widget=$saved)" '[[ $saved -eq $conf ]]'
+    check "live limit matches the saved one (unsaved=$unsaved)" '[[ $unsaved == false ]]'
+    check "boot restore service is enabled" 'systemctl is-enabled power-pulse-charge-limit.service >/dev/null 2>&1'
+  else
+    echo "  skip  no /etc/default/power-pulse-charge-limit (boot restore not installed)"
+  fi
 else
   check "unsupported machine reports limit 0" '[[ $lim -eq 0 ]]'
 fi

@@ -66,6 +66,17 @@ omarchy-shell omarchy.power chargeLimit 80     # 100 = charge to full
 
 `charge_control_end_threshold` is root-owned, so the bundled `charge-limit` helper escalates: a direct write first (works if a udev rule has made the attribute group-writable), then `sudo -n`, then `pkexec`. It reads the value back after writing and fails loudly if the driver reports something else, because a limit that silently did not apply is worse than an error.
 
+### Making it survive a reboot
+
+The live ceiling is a byte in EC RAM. On some boards that survives a warm reboot and on none is it guaranteed to survive a cold one, so the limit has to be re-applied at boot or it quietly lapses — the exact failure the limit exists to prevent, and invisible until the pack has sat at 100% for a week.
+
+Two pieces, both root-owned:
+
+- `/etc/default/power-pulse-charge-limit` holds `CHARGE_LIMIT=80`. The slider rewrites it on every change, so boot restores what you last chose. Setting the sysfs value by hand without updating this file is the one way to desync them, and the panel says so when it happens: *"not saved for reboot (boot would restore 80%)"* in the urgent colour.
+- `power-pulse-charge-limit.service`, a oneshot that runs `/usr/local/bin/power-pulse-charge-limit-apply` after `systemd-modules-load.service`. It waits up to 15 s for the driver's battery hook to create the attribute, writes the saved value, reads it back, and exits 0 with an explanation on a machine that has no threshold at all, so a missing driver never blocks a boot.
+
+`status()` reports `chargeLimitSaved` and `chargeLimitUnsaved` alongside the live value, and `test/panel-test.sh` asserts the two agree and that the service is enabled.
+
 ### MSI laptops with firmware no driver knows yet
 
 `msi-ec` keys off the EC firmware string and refuses anything not on its list, so a new model has no threshold file at all. On **gus** (MSI Crosshair 16 Max HX, MS-2652, EC `2652EMS1.303`) neither the in-tree driver nor upstream knows that firmware. The out-of-tree module takes a firmware override, and `182KIMS1.113` (the 2025 Titan/Crosshair family) is the closest relative:
@@ -78,13 +89,14 @@ sudo modprobe msi-ec firmware=182KIMS1.113
 
 That was **verified on this board, not assumed**: writing 60 / 80 / 100 to the threshold produced EC byte `0xd7` = `bc` / `d0` / `e4`, exactly `percent | BIT(7)`, with the start threshold trailing the end by 10. Only the charge threshold is trusted from a borrowed config. The same config's `fan_mode`, `shift_mode` and `cooler_boost` addresses are **unverified on this board — do not write them.**
 
-To survive a reboot it needs two root-owned files, which are not installed yet:
+The module will not autoload, because its DMI alias only binds when the firmware whitelist matches, so boot needs to be told twice — load it, and load it with the override:
 
 ```bash
-# load at boot with the override
 printf 'options msi-ec firmware=182KIMS1.113\n' | sudo tee /etc/modprobe.d/msi-ec.conf
 printf 'msi-ec\n' | sudo tee /etc/modules-load.d/msi-ec.conf
 ```
+
+Verified on gus by tearing the whole thing down and letting systemd rebuild it: unload `msi_ec` (the threshold file disappears), change the saved value, `systemctl restart systemd-modules-load.service` (the module comes back *with* the override), then start the restore unit — the new value lands in the EC. That is the boot path, run in the boot order.
 
 ```json
 { "id": "pi.power", "showPercentage": true, "lowThreshold": 15 }

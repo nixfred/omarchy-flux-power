@@ -1,0 +1,12 @@
+# Battery charge ceiling, in percent, re-applied at boot by
+# power-pulse-charge-limit.service.
+#
+# The Power Pulse slider (pi.power, panel -> CHARGE LIMIT) rewrites this file
+# whenever you move it, so you should not need to edit it by hand. Valid range
+# 50-100. 100 means charge to full, which is how the kernel interface spells
+# "no limit" -- there is no separate off switch.
+#
+# A limit of 80 does not hold at exactly 80: the EC stops there and waits until
+# the pack falls to the start threshold (10 points lower) before topping up, so
+# the charge drifts in an 70-80 band. That is normal and is the point.
+CHARGE_LIMIT=80

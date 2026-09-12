@@ -1,0 +1,23 @@
+[Unit]
+# Re-apply the battery charge limit at boot.
+#
+# WHY: /etc/modules-load.d/msi-ec.conf gets the driver loaded, but the ceiling
+# itself lives in EC RAM. That survives a warm reboot on this board and does
+# NOT survive a full power-off or an EC reset. Without this unit the limit
+# silently reverts to "charge to full", which is the exact failure the limit
+# exists to prevent and is invisible until the pack has sat at 100% for a week.
+#
+# The value lives in /etc/default/power-pulse-charge-limit, which the Power
+# Pulse slider rewrites whenever you move it, so boot restores what you chose.
+Description=Re-apply the battery charge limit (Power Pulse)
+Documentation=https://github.com/nixfred/power-pulse
+After=systemd-modules-load.service
+Wants=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/power-pulse-charge-limit-apply
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Re-apply the saved battery charge ceiling. Run at boot by
+# power-pulse-charge-limit.service; safe to run by hand any time.
+#
+# WHY A SCRIPT AND NOT AN INLINE ExecStart: systemd expands % in unit files as
+# its own specifiers, so a shell one-liner containing printf "%s" or
+# "${var%% *}" is silently mangled and bash exits 2. Keeping the logic in a
+# real file also means it can be read and run on its own when something is off.
+#
+# WHY IT IS ROOT-OWNED IN /usr/local/bin: a root unit must never execute a
+# script from a user-writable directory. The plugin's own copy of a helper
+# lives under ~/.config and is deliberately NOT what this runs.
+set -uo pipefail
+
+CONF=/etc/default/power-pulse-charge-limit
+MIN=50
+MAX=100
+WAIT_TRIES=30      # x 0.5s = up to 15s for the driver's battery hook
+
+# shellcheck source=/dev/null
+[[ -r $CONF ]] && . "$CONF"
+
+limit=${CHARGE_LIMIT:-}
+if [[ ! $limit =~ ^[0-9]+$ ]] || (( limit < MIN || limit > MAX )); then
+  echo "no valid CHARGE_LIMIT in $CONF (got '${limit:-unset}'); leaving the EC alone"
+  exit 0
+fi
+
+find_attr() {
+  local b
+  for b in /sys/class/power_supply/BAT*; do
+    [[ -e $b/charge_control_end_threshold ]] || continue
+    printf '%s\n' "$b/charge_control_end_threshold"
+    return 0
+  done
+  return 1
+}
+
+attr=""
+for ((i = 0; i < WAIT_TRIES; i++)); do
+  attr=$(find_attr) && break
+  sleep 0.5
+done
+
+if [[ -z $attr ]]; then
+  # Not a failure: plenty of machines have no threshold. Say why, exit clean,
+  # so a missing driver never blocks a boot.
+  echo "no charge_control_end_threshold appeared."
+  echo "on an MSI board check msi-ec is loaded with its firmware override:"
+  echo "  cat /etc/modprobe.d/msi-ec.conf && lsmod | grep msi_ec"
+  exit 0
+fi
+
+printf '%s\n' "$limit" > "$attr" || {
+  echo "could not write $attr" >&2
+  exit 1
+}
+
+# Read back. The EC can clamp or ignore a value, and a silent no-op here would
+# leave a limit that looks applied and never engages.
+now=$(<"$attr")
+if [[ $now != "$limit" ]]; then
+  echo "wrote ${limit} but the driver reports ${now}" >&2
+  exit 1
+fi
+
+start_attr=${attr%end_threshold}start_threshold
+if [[ -r $start_attr ]]; then
+  echo "charge limit ${now}%, resume below $(<"$start_attr")% ($attr)"
+else
+  echo "charge limit ${now}% ($attr)"
+fi
