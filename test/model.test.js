@@ -364,3 +364,50 @@ test("twinkleSpec: glints land inside the flow region and spin either way", () =
   for (let i = 0; i < 12; i++) { const s = Model.twinkleSpec(i, 12).spin; if (s > 0) anyCw = true; else anyCcw = true }
   assert.ok(anyCw && anyCcw, "a dozen glints spin both ways")
 })
+
+test("charge limit: 0 or missing reads as no limit", () => {
+  assert.equal(Model.chargeLimitValue(0), 100)
+  assert.equal(Model.chargeLimitValue(undefined), 100)
+  assert.equal(Model.chargeLimitValue(""), 100)
+  assert.equal(Model.chargeLimitIsOff(0), true)
+  assert.equal(Model.chargeLimitIsOff(100), true)
+  assert.equal(Model.chargeLimitIsOff(80), false)
+})
+
+test("charge limit clamps into the slider's range", () => {
+  assert.equal(Model.chargeLimitValue(80), 80)
+  assert.equal(Model.chargeLimitValue(20), 50)
+  assert.equal(Model.chargeLimitValue(140), 100)
+})
+
+test("charge limit snaps to the step", () => {
+  assert.equal(Model.snapChargeLimit(77), 75)
+  assert.equal(Model.snapChargeLimit(78), 80)
+  assert.equal(Model.snapChargeLimit(1), 50)
+  assert.equal(Model.snapChargeLimit(1000), 100)
+  assert.equal(Model.snapChargeLimit(NaN), 100)
+})
+
+test("charge limit label names the resume band", () => {
+  assert.equal(Model.chargeLimitLabel(100, 90), "Charge to full")
+  assert.equal(Model.chargeLimitLabel(0, 0), "Charge to full")
+  assert.equal(Model.chargeLimitLabel(80, 70), "Stop at 80%, resume below 70%")
+  assert.equal(Model.chargeLimitLabel(80, 80), "Stop at 80%")
+  assert.equal(Model.chargeLimitLabel(80, 0), "Stop at 80%")
+})
+
+test("charge limit ticks span min..max on the step", () => {
+  assert.equal(Model.chargeLimitTicks(), 11)
+})
+
+test("parseSysfs reads the charge thresholds", () => {
+  const out = Model.parseSysfs("power_now\t0\ncharge_control_end_threshold\t80\ncharge_control_start_threshold\t70\n")
+  assert.equal(out.limitEnd, 80)
+  assert.equal(out.limitStart, 70)
+})
+
+test("parseSysfs leaves the thresholds undefined when absent", () => {
+  const out = Model.parseSysfs("power_now\t15000000\n")
+  assert.equal(out.limitEnd, undefined)
+  assert.equal(out.limitStart, undefined)
+})

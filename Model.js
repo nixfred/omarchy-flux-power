@@ -479,7 +479,64 @@ function parseSysfs(raw) {
   else if (kv.charge_full !== undefined && isFinite(cf)) out.full = cf / 1e6
   if (kv.energy_full_design !== undefined && isFinite(efd)) out.fullDesign = efd / 1e6
   else if (kv.charge_full_design !== undefined && isFinite(cfd)) out.fullDesign = cfd / 1e6
+  // The charge limit, when a driver exposes one. Absent on machines whose EC
+  // has no threshold support (or whose firmware no driver recognises), which
+  // is what the panel keys "is this machine capable" off.
+  var cce = Number(kv.charge_control_end_threshold)
+  var ccs = Number(kv.charge_control_start_threshold)
+  if (kv.charge_control_end_threshold !== undefined && isFinite(cce)) out.limitEnd = clampPercent(cce)
+  if (kv.charge_control_start_threshold !== undefined && isFinite(ccs)) out.limitStart = clampPercent(ccs)
   return out
+}
+
+function clampPercent(v) {
+  var n = Number(v)
+  if (!isFinite(n)) return 0
+  return Math.max(0, Math.min(100, Math.round(n)))
+}
+
+// ---- The charge limit ------------------------------------------------------
+// The kernel interface has no "off": charging to full IS 100, so the slider's
+// top notch is the off position and the label has to say so. Below that the
+// number is the ceiling the EC stops at.
+var LIMIT_MIN = 50
+var LIMIT_MAX = 100
+var LIMIT_STEP = 5
+
+// A driver can report 0 when nothing has ever been set (MSI's EC does: the
+// register reads as "threshold zero" from the factory). 0 is not a real
+// ceiling — nothing would ever charge — so it reads as no limit.
+function chargeLimitValue(end) {
+  var n = Number(end)
+  if (!isFinite(n) || n <= 0) return LIMIT_MAX
+  return Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, Math.round(n)))
+}
+
+function snapChargeLimit(v) {
+  var n = Number(v)
+  if (!isFinite(n)) return LIMIT_MAX
+  var snapped = Math.round(n / LIMIT_STEP) * LIMIT_STEP
+  return Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, snapped))
+}
+
+function chargeLimitIsOff(end) {
+  return chargeLimitValue(end) >= LIMIT_MAX
+}
+
+// What the slider says it is doing. The resume point matters: a limit of 80
+// does not hold at exactly 80, it stops there and waits until the pack falls
+// to the start threshold before topping up again, so the cell drifts in a
+// band. Saying so stops the "why is it at 73 when I asked for 80" question.
+function chargeLimitLabel(end, start) {
+  if (chargeLimitIsOff(end)) return "Charge to full"
+  var e = chargeLimitValue(end)
+  var s = Number(start)
+  if (isFinite(s) && s > 0 && s < e) return "Stop at " + e + "%, resume below " + s + "%"
+  return "Stop at " + e + "%"
+}
+
+function chargeLimitTicks() {
+  return Math.round((LIMIT_MAX - LIMIT_MIN) / LIMIT_STEP) + 1
 }
 
 // Ring buffer as a fresh array: reassigning the QML property is what makes
@@ -620,6 +677,15 @@ if (typeof module !== "undefined") {
     tooltip: tooltip,
     laneKey: laneKey,
     trendKey: trendKey,
+    clampPercent: clampPercent,
+    chargeLimitValue: chargeLimitValue,
+    snapChargeLimit: snapChargeLimit,
+    chargeLimitIsOff: chargeLimitIsOff,
+    chargeLimitLabel: chargeLimitLabel,
+    chargeLimitTicks: chargeLimitTicks,
+    LIMIT_MIN: LIMIT_MIN,
+    LIMIT_MAX: LIMIT_MAX,
+    LIMIT_STEP: LIMIT_STEP,
     nextProfile: nextProfile,
     sysfsPath: sysfsPath,
     upowerSeconds: upowerSeconds

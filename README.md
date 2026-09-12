@@ -15,6 +15,7 @@ Stock draws a Nerd Font battery rune and, optionally, `92%`. Power Pulse:
 - **Glints.** Four-point sparkles pop and spin wherever the atoms are landing or leaving, a little outside the outline too, like sparks flying off.
 - **A full cell brims.** Parked at 100% on the wall there is no current to show, so the atoms rest — but the halo swells harder and the glints keep crackling, slower, because the energy is in there. A docked laptop spends most of its day here; it should not look switched off.
 - **The number inside the cell.** With `showPercentage` on, the charge is written as digits over the fill: dark on the filled part, foreground past the fill's edge, so it reads on blue, yellow and red alike with no outline or box round it. The cell grows a little to hold it and the widget takes one slot instead of two. No `%`: a number inside a battery is a percentage already. The atoms already say which way the power is going, so the bar carries no arrow; the panel's percentage keeps its up/down arrow.
+- **A charge-limit slider.** Stop charging at a ceiling so a docked laptop is not parked at 100% all day, which is what ages a lithium pack fastest. The slider runs 50-100% in 5-point notches; the top notch is "charge to full", because the kernel interface has no separate off switch. The line under it names the resume point as well as the ceiling, since a limit of 80 does not hold at exactly 80: the EC stops there and waits until the pack falls to the start threshold before topping up, so the charge drifts in a band. The whole section is absent on a machine whose kernel exposes no threshold, rather than present and dead.
 - **A tooltip that answers the question.** `On battery 92%  ·  18.3 W out  ·  3h 24m left`.
 - **The panel scales the same cell up**, with a plug or laptop at the far end of the wire depending on which way the power is going, and a lock over a cell parked at a charge threshold.
 - **The last hour as bars off a centre line.** Up is in, down is out, flat is parked. Sampled from UPower every 30 seconds whether the panel is open or not, so it has a past the first time you look, and persisted across shell hot-reloads.
@@ -51,6 +52,39 @@ Inline on the bar entry in `~/.config/omarchy/shell.json`:
 | `midColor` | `"yellow"` | The middle stop, reached at 50% (or 15 points above the threshold, whichever is higher) |
 | `lowColor` | `"red"` | The bottom stop |
 | `vivid` | `true` | Guarantee every stop can be seen. A stop that stands out from the bar and is a colour is used as it is; a dull one keeps its hue but gains saturation and brightness until it glows. `false` wears the theme verbatim, dull or not |
+
+## The charge limit
+
+The slider writes the kernel's own `charge_control_end_threshold`, so it works on any laptop whose driver exposes one (ThinkPads, most ASUS, Framework, and MSI via `msi-ec`). Read it or set it without the panel:
+
+```bash
+omarchy-shell omarchy.power status | jq '{chargeLimitSupported, chargeLimit, chargeLimitStart}'
+omarchy-shell omarchy.power chargeLimit 80     # 100 = charge to full
+./charge-limit get                             # end<TAB>start, or nothing if unsupported
+./charge-limit set 80
+```
+
+`charge_control_end_threshold` is root-owned, so the bundled `charge-limit` helper escalates: a direct write first (works if a udev rule has made the attribute group-writable), then `sudo -n`, then `pkexec`. It reads the value back after writing and fails loudly if the driver reports something else, because a limit that silently did not apply is worse than an error.
+
+### MSI laptops with firmware no driver knows yet
+
+`msi-ec` keys off the EC firmware string and refuses anything not on its list, so a new model has no threshold file at all. On **gus** (MSI Crosshair 16 Max HX, MS-2652, EC `2652EMS1.303`) neither the in-tree driver nor upstream knows that firmware. The out-of-tree module takes a firmware override, and `182KIMS1.113` (the 2025 Titan/Crosshair family) is the closest relative:
+
+```bash
+yay -S msi-ec-dkms-git
+sudo modprobe -r msi_ec
+sudo modprobe msi-ec firmware=182KIMS1.113
+```
+
+That was **verified on this board, not assumed**: writing 60 / 80 / 100 to the threshold produced EC byte `0xd7` = `bc` / `d0` / `e4`, exactly `percent | BIT(7)`, with the start threshold trailing the end by 10. Only the charge threshold is trusted from a borrowed config. The same config's `fan_mode`, `shift_mode` and `cooler_boost` addresses are **unverified on this board — do not write them.**
+
+To survive a reboot it needs two root-owned files, which are not installed yet:
+
+```bash
+# load at boot with the override
+printf 'options msi-ec firmware=182KIMS1.113\n' | sudo tee /etc/modprobe.d/msi-ec.conf
+printf 'msi-ec\n' | sudo tee /etc/modules-load.d/msi-ec.conf
+```
 
 ```json
 { "id": "pi.power", "showPercentage": true, "lowThreshold": 15 }

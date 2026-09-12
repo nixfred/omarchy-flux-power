@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Power Pulse — read and set the battery charge limit.
+#
+#   charge-limit get              -> "end<TAB>start" (nothing if unsupported)
+#   charge-limit set <percent>    -> set the end threshold (50..100)
+#   charge-limit path             -> the sysfs file it would use
+#
+# 100 means "charge to full", which is how every driver spells "no limit":
+# there is no separate off switch in the kernel interface.
+#
+# WHY A HELPER AT ALL: charge_control_end_threshold is root-owned 0644, so the
+# shell plugin (running as the desktop user) cannot write it directly. This
+# tries, in order: a direct write (works when a udev rule has made the
+# attribute group-writable), `sudo -n`, then `pkexec`. The first that succeeds
+# wins; a failure is reported loudly rather than swallowed, because a charge
+# limit that silently did not apply is worse than an error.
+set -uo pipefail
+
+MIN=50
+MAX=100
+
+find_attr() {
+  local b
+  for b in /sys/class/power_supply/BAT*; do
+    [[ -e $b/charge_control_end_threshold ]] || continue
+    printf '%s\n' "$b/charge_control_end_threshold"
+    return 0
+  done
+  return 1
+}
+
+write_attr() {
+  local file=$1 value=$2
+
+  # 1. Direct — the attribute is group-writable (udev rule installed).
+  if [[ -w $file ]] && printf '%s\n' "$value" >"$file" 2>/dev/null; then
+    return 0
+  fi
+
+  # 2. Passwordless sudo, if this host has it. -n never prompts.
+  if command -v sudo >/dev/null 2>&1 &&
+     sudo -n sh -c "printf '%s\n' '$value' > '$file'" 2>/dev/null; then
+    return 0
+  fi
+
+  # 3. polkit. May show an auth dialog, which is correct for a privileged
+  #    write the user just asked for by dragging a slider.
+  if command -v pkexec >/dev/null 2>&1 &&
+     pkexec sh -c "printf '%s\n' '$value' > '$file'" 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
+attr=$(find_attr) || {
+  case ${1-} in
+    get|path) exit 0 ;;
+    *) echo "charge-limit: no charge_control_end_threshold on this machine" >&2; exit 2 ;;
+  esac
+}
+start_attr=${attr%end_threshold}start_threshold
+
+case ${1-get} in
+  path)
+    printf '%s\n' "$attr"
+    ;;
+  get)
+    end=$(<"$attr")
+    start=""
+    [[ -r $start_attr ]] && start=$(<"$start_attr")
+    printf '%s\t%s\n' "$end" "$start"
+    ;;
+  set)
+    value=${2-}
+    [[ $value =~ ^[0-9]+$ ]] || { echo "charge-limit: set needs a whole percent" >&2; exit 2; }
+    (( value >= MIN && value <= MAX )) || {
+      echo "charge-limit: $value% out of range ($MIN..$MAX)" >&2; exit 2; }
+    write_attr "$attr" "$value" || {
+      echo "charge-limit: could not write $attr (need a udev rule, passwordless sudo, or polkit)" >&2
+      exit 1; }
+    # Read back: the EC can clamp or ignore a value, and a silent no-op here
+    # would look like a working limit that never engages.
+    now=$(<"$attr")
+    if [[ $now != "$value" ]]; then
+      echo "charge-limit: wrote $value but the driver reports $now" >&2
+      exit 1
+    fi
+    printf '%s\n' "$now"
+    ;;
+  *)
+    echo "usage: charge-limit [get|set <percent>|path]" >&2
+    exit 2
+    ;;
+esac

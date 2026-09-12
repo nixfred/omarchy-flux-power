@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "pi.power",
   "name": "Power Pulse",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "author": "Fred Nix",
-  "description": "Battery as a glowing flux cell whose colour is its charge: blue when full, yellow in the middle, red when low. A stream of glowing atoms rides in while charging, out on battery, with glints popping around them. Hour-long up/down power trace, live wattage, power profiles.",
+  "description": "Battery as a glowing flux cell whose colour is its charge: blue when full, yellow in the middle, red when low. A stream of glowing atoms rides in while charging, out on battery, with glints popping around them. Charge-limit slider, hour-long up/down power trace, live wattage, power profiles.",
   "kinds": [
     "bar-widget"
   ],

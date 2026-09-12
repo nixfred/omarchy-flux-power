@@ -226,6 +226,106 @@ Panel {
   readonly property color flowColor: barCell.flowColor
   readonly property color levelColor: barCell.levelColor
 
+  // ---- Charge limit -----------------------------------------------------------
+  // Stop charging at a ceiling so a docked laptop is not parked at 100% all
+  // day. The kernel spells this charge_control_end_threshold; whether it
+  // exists at all depends on the machine's EC and on a driver recognising its
+  // firmware, so everything here is gated on having actually read one.
+  //
+  // Reads come from the sysfs probe (panel-open cadence) and from the bundled
+  // `charge-limit` helper on open, so the slider is right the instant the
+  // panel appears. Writes go through the helper because the attribute is
+  // root-owned: it tries a direct write, then `sudo -n`, then pkexec.
+  property int chargeLimitEnd: -1
+  property int chargeLimitStart: -1
+  // Held while a write is in flight so the knob does not snap back to the old
+  // value between the drag ending and the driver confirming.
+  property int chargeLimitPending: -1
+  // The most recent value asked for while a write was already in flight. One
+  // privileged write runs at a time, but dropping the newer request would
+  // leave the EC on a value nobody asked for — the old code did exactly that
+  // when two IPC calls arrived back to back.
+  property int chargeLimitQueued: -1
+  property string chargeLimitError: ""
+
+  readonly property bool chargeLimitSupported: chargeLimitEnd >= 0
+  readonly property int chargeLimitShown: chargeLimitPending >= 0
+    ? chargeLimitPending
+    : Model.chargeLimitValue(chargeLimitEnd)
+  readonly property bool chargeLimitOff: Model.chargeLimitIsOff(chargeLimitShown)
+  readonly property string chargeLimitText: Model.chargeLimitLabel(chargeLimitShown, chargeLimitStart)
+
+  readonly property string helperPath: {
+    var u = String(Qt.resolvedUrl("charge-limit"))
+    return u.indexOf("file://") === 0 ? u.substring(7) : u
+  }
+
+  function readChargeLimit() {
+    if (!limitReadProc.running) limitReadProc.running = true
+  }
+
+  function setChargeLimit(percent) {
+    if (!chargeLimitSupported) return
+    var v = Model.snapChargeLimit(percent)
+    if (limitWriteProc.running) {
+      // Coalesce: remember the latest ask and run it when the current one ends.
+      chargeLimitQueued = v
+      chargeLimitPending = v
+      return
+    }
+    if (v === Model.chargeLimitValue(chargeLimitEnd) && chargeLimitPending < 0) return
+    chargeLimitQueued = -1
+    chargeLimitPending = v
+    chargeLimitError = ""
+    limitWriteProc.command = [root.helperPath, "set", String(v)]
+    limitWriteProc.running = true
+  }
+
+  function applyLimitReading(endRaw, startRaw) {
+    var e = Number(endRaw)
+    var st = Number(startRaw)
+    if (isFinite(e) && String(endRaw).length > 0) chargeLimitEnd = Model.clampPercent(e)
+    if (isFinite(st) && String(startRaw).length > 0) chargeLimitStart = Model.clampPercent(st)
+  }
+
+  Process {
+    id: limitReadProc
+    command: [root.helperPath, "get"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var line = String(text).trim()
+        if (line === "") return              // no attribute: unsupported machine
+        var parts = line.split("\t")
+        root.applyLimitReading(parts[0], parts.length > 1 ? parts[1] : "")
+      }
+    }
+  }
+
+  Process {
+    id: limitWriteProc
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (code === 0) {
+        root.chargeLimitError = ""
+      } else {
+        // Fail loudly: a limit that did not apply must not look applied.
+        var err = String(stderr.text).trim()
+        root.chargeLimitError = err !== "" ? err : "could not set the charge limit"
+      }
+      var queued = root.chargeLimitQueued
+      root.chargeLimitQueued = -1
+      root.chargeLimitPending = -1
+      if (code === 0 && queued >= 0) {
+        root.setChargeLimit(queued)
+        return
+      }
+      root.readChargeLimit()
+      root.refresh()
+    }
+  }
+
   // ---- Rate history: the hour behind the trace --------------------------------
   // Sampled from UPower every 30 s whether or not the panel is open, so the
   // trace has a past the first time it is looked at. Persisted as JSON so a
@@ -262,6 +362,7 @@ Panel {
     // Profiles are fetched once up front so a middle-click cycles them before
     // the panel has ever been opened.
     if (!profilesProc.running) profilesProc.running = true
+    readChargeLimit()
   }
 
   // ---- Refresh (stock cadence, minus the unused system-stats probe) -----------
@@ -283,6 +384,8 @@ Panel {
     var next = Model.parseSysfs(raw)
     if (Object.keys(next).length === 0) return
     sysInfo = next
+    if (next.limitEnd !== undefined && chargeLimitPending < 0) chargeLimitEnd = next.limitEnd
+    if (next.limitStart !== undefined && chargeLimitPending < 0) chargeLimitStart = next.limitStart
   }
 
   function updateProfiles(raw) {
@@ -324,6 +427,11 @@ Panel {
     function toggle() { root.toggle() }
     function togglePercentage() { root.togglePercentage() }
     function cycleProfile() { root.cycleProfile() }
+    // chargeLimit <50..100>  — 100 charges to full (the interface's "off")
+    function chargeLimit(percent: int): string {
+      root.setChargeLimit(percent)
+      return root.statusJson()
+    }
     // preview in|out|hold|full <percent>  — paint that state for 30 s
     // preview off                          — back to the battery
     function preview(mode: string, percent: int): string {
@@ -357,6 +465,11 @@ Panel {
       samples: root.rateHistory.length,
       profile: root.activeProfile,
       profiles: root.profiles,
+      chargeLimitSupported: root.chargeLimitSupported,
+      chargeLimit: root.chargeLimitSupported ? root.chargeLimitShown : 0,
+      chargeLimitStart: root.chargeLimitStart,
+      chargeLimitBusy: limitWriteProc.running,
+      chargeLimitError: root.chargeLimitError,
       opened: root.opened
     })
   }
@@ -369,6 +482,7 @@ Panel {
       }
 
       refresh()
+      readChargeLimit()
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
       cursorActive = false
@@ -403,7 +517,7 @@ Panel {
   Process {
     id: sysProc
     command: ["sh", "-c",
-      "cd \"$1\" 2>/dev/null || exit 0; for f in power_now current_now voltage_now status energy_full energy_full_design charge_full charge_full_design; do [ -r \"$f\" ] && printf '%s\\t%s\\n' \"$f\" \"$(cat \"$f\")\"; done",
+      "cd \"$1\" 2>/dev/null || exit 0; for f in power_now current_now voltage_now status energy_full energy_full_design charge_full charge_full_design charge_control_end_threshold charge_control_start_threshold; do [ -r \"$f\" ] && printf '%s\\t%s\\n' \"$f\" \"$(cat \"$f\")\"; done",
       "sh", root.sysfsPath]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateSysfs(text) }
   }
@@ -683,6 +797,87 @@ Panel {
             }
             InfoPair { label: "Health"; value: root.health >= 0 ? root.health + "%" : "—" }
             InfoPair { label: "Voltage"; value: Model.formatVolts(root.sysInfo.volts) }
+          }
+        }
+
+        // ---------- Charge limit ----------
+        // Only shown when a driver actually exposes a threshold. On a machine
+        // without one there is nothing to explain and nothing to drag, so the
+        // section is absent rather than present-and-dead.
+        PanelSeparator {
+          visible: root.chargeLimitSupported
+          foreground: root.bar.foreground
+        }
+
+        Column {
+          id: limitSection
+          visible: root.chargeLimitSupported
+          width: parent.width
+          spacing: Style.space(8)
+
+          Row {
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              text: "CHARGE LIMIT"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Item {
+              width: Math.max(0, parent.width - parent.children[0].implicitWidth
+                - limitValue.implicitWidth - parent.spacing * 2)
+              height: 1
+            }
+
+            Text {
+              id: limitValue
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: root.chargeLimitOff ? "FULL" : root.chargeLimitShown + "%"
+              color: root.chargeLimitOff ? root.bar.foreground : root.levelColor
+              opacity: root.chargeLimitOff ? 0.6 : 1
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.subtitle
+              font.bold: true
+              renderType: Text.NativeRendering
+
+              Behavior on color { ColorAnimation { duration: 220 } }
+            }
+          }
+
+          PanelSlider {
+            id: limitSlider
+            bar: root.bar
+            width: parent.width
+            minimum: Model.LIMIT_MIN
+            maximum: Model.LIMIT_MAX
+            step: Model.LIMIT_STEP
+            integer: true
+            tickCount: Model.chargeLimitTicks()
+            value: root.chargeLimitShown
+            enabled: root.chargeLimitSupported
+            // The fill wears the cell colour, so the slider reads as part of
+            // the same battery rather than a generic control.
+            fillColor: root.chargeLimitOff ? root.bar.foreground : root.levelColor
+            knobColor: root.chargeLimitOff ? root.bar.foreground : root.levelColor
+
+            // Only commit on release / wheel. Every drag frame would be a
+            // privileged EC write, which is both slow and pointless.
+            onMoved: function(v) { root.chargeLimitPending = Model.snapChargeLimit(v) }
+            onReleased: function(v) { root.setChargeLimit(v) }
+          }
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: root.chargeLimitError !== "" ? root.chargeLimitError : root.chargeLimitText
+            color: root.chargeLimitError !== "" ? root.bar.urgent : root.bar.foreground
+            opacity: root.chargeLimitError !== "" ? 1 : 0.6
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
           }
         }
 

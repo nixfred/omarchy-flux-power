@@ -45,6 +45,24 @@ label=$(jq -r .label <<<"$status" 2>/dev/null)
 cellw=$(jq -r .cellWidth <<<"$status" 2>/dev/null)
 check "label is a boolean ($label)" '[[ $label =~ ^(true|false)$ ]]'
 check "bar cell has a width ($cellw px)" '[[ $cellw =~ ^[0-9]+$ ]] && (( cellw > 0 ))'
+
+# Charge limit. Only asserted when the machine actually exposes a threshold;
+# a laptop whose EC has none (or whose firmware no driver knows) must report
+# unsupported rather than a fake zero.
+limsup=$(jq -r .chargeLimitSupported <<<"$status" 2>/dev/null)
+lim=$(jq -r .chargeLimit <<<"$status" 2>/dev/null)
+check "chargeLimitSupported is a boolean ($limsup)" '[[ $limsup =~ ^(true|false)$ ]]'
+if [[ $limsup == true ]]; then
+  check "charge limit in 50..100 ($lim)" '[[ $lim =~ ^[0-9]+$ ]] && (( lim >= 50 && lim <= 100 ))'
+  check "no charge-limit error ($(jq -r .chargeLimitError <<<"$status"))" '[[ -z $(jq -r ".chargeLimitError" <<<"$status") ]]'
+  sysfs_lim=$(cat /sys/class/power_supply/BAT*/charge_control_end_threshold 2>/dev/null | head -1)
+  if [[ -n $sysfs_lim ]]; then
+    expect=$sysfs_lim; (( expect <= 0 )) && expect=100
+    check "widget agrees with the kernel (sysfs=$sysfs_lim widget=$lim)" '[[ $lim -eq $expect ]]'
+  fi
+else
+  check "unsupported machine reports limit 0" '[[ $lim -eq 0 ]]'
+fi
 if [[ $mode == full && $hum == true ]]; then
   check "a full cell with hum on is humming" '[[ $humming == true ]]'
 else
